@@ -1,0 +1,22 @@
+﻿cmake_minimum_required(VERSION 3.16)
+project(mcu_matrix LANGUAGES CXX)
+
+add_library(matrix STATIC matrix.cpp)
+target_include_directories(matrix PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
+target_compile_features(matrix PUBLIC cxx_std_14)
+
+option(MATRIX_BUILD_EXAMPLE "Build matrix example" OFF)
+if(MATRIX_BUILD_EXAMPLE)
+        add_executable(matrix_example examples/basic.cpp)
+        target_link_libraries(matrix_example PRIVATE matrix)
+endif()
+
+include(CTest)
+if(BUILD_TESTING)
+        add_executable(matrix_tests tests/matrix_tests.cpp)
+        target_link_libraries(matrix_tests PRIVATE matrix)
+        if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+                target_compile_options(matrix_tests PRIVATE -fno-exceptions -fno-rtti)
+        endif()
+        add_test(NAME matrix_tests COMMAND matrix_tests)
+endif()

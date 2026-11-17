@@ -1,0 +1,15 @@
+{
+    "version": "0.2.0",
+    "configurations": [{
+        "name": "DAPLink SWD",
+        "type": "cortex-debug",
+        "request": "launch",
+        "servertype": "openocd",
+        "cwd": "${workspaceFolder}",
+        "executable": "${workspaceFolder}/build/supercap.elf",
+        "device": "STM32G474CB",
+        "configFiles": ["interface/cmsis-dap.cfg", "target/stm32g4x.cfg"],
+        "runToEntryPoint": "main",
+        "preLaunchTask": "build"
+    }]
+}

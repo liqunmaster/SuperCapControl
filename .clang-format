@@ -1,0 +1,16 @@
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++14
+IndentWidth: 4
+ContinuationIndentWidth: 4
+UseTab: Never
+ColumnLimit: 120
+BreakBeforeBraces: Allman
+NamespaceIndentation: All
+IndentAccessModifiers: true
+FixNamespaceComments: false
+IndentExternBlock: Indent
+AllowShortFunctionsOnASingleLine: Empty
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortLoopsOnASingleLine: false
+PointerAlignment: Left
