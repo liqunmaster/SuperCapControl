@@ -1,45 +1,48 @@
-/**
- * @brief 板级初始化与基础工具接口。
- * @file board.hpp
+/** @file board.hpp
+ *  @brief Board clock, pin assignments and short interrupt guard.
  */
 #pragma once
+
 #include <cstdint>
 
-#include "stm32g4xx.h"
-
-/// @brief 板级资源与初始化工具。
+#include "stm32g4xx_hal.h"
 
 namespace board
 {
-    constexpr uint32_t HseHz = 24000000;    ///< 外部晶振频率，单位 Hz。
-    constexpr uint32_t CoreHz = 144000000;  ///< 配置后的内核及总线频率，单位 Hz。
-    constexpr uint32_t UartBaud = 115200;   ///< 调试串口波特率。
-    constexpr uint32_t SamplingHz = 1000;   ///< Bring-up only; not the control loop frequency.
-    constexpr unsigned LedGreen = 12;       ///< 绿色 LED 的 GPIOB 引脚。
-    constexpr unsigned LedBlue = 13;        ///< 蓝色 LED 的 GPIOB 引脚。
-    constexpr unsigned LedRed = 14;         ///< 红色 LED 的 GPIOB 引脚。
-    constexpr unsigned LedPower = 15;       ///< 电源指示 LED 的 GPIOB 引脚。
+    constexpr uint32_t CoreHz = 170000000;       ///< HSE/PLL and AHB frequency.
+    constexpr uint32_t ControlHz = 31250;       ///< Control windows per second.
+    constexpr uint32_t UartBaud = 115200;        ///< USART3 line rate.
+    constexpr uint32_t PwmHz = 125000;          ///< HRTIM bench switching frequency.
+    constexpr uint32_t PwmDeadTimeNs = 100;     ///< Bench software dead time per edge.
+    constexpr unsigned AdcErrorPriority = 2;
+    constexpr unsigned AdcTriggerPriority = 3;
+    constexpr unsigned AdcDmaPriority = 4;
+    constexpr unsigned PwmDmaPriority = 3;
+    constexpr unsigned CanPriority = 8;
+    constexpr unsigned UartPriority = 10;
 
-    /**
-     * @brief 保存并恢复 PRIMASK 的临界区守卫，支持嵌套使用。
-     */
+    constexpr uint16_t LedGreen = GPIO_PIN_12;
+    constexpr uint16_t LedBlue = GPIO_PIN_13;
+    constexpr uint16_t LedRed = GPIO_PIN_14;
+    constexpr uint16_t LedPower = GPIO_PIN_15;
+    constexpr uint16_t PwmPins = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11;
+
+    /** @brief Short, nestable PRIMASK guard for task and IRQ data handoff. */
     class critical_section
     {
         public:
-            /**
-             * @brief 保存当前中断屏蔽状态并屏蔽可屏蔽中断。
-             */
+            /** @brief Save PRIMASK and mask configurable interrupts. */
             critical_section() : _mask(__get_PRIMASK())
             {
                 __disable_irq();
             }
-            /**
-             * @brief 恢复进入临界区前的 PRIMASK。
-             */
+
+            /** @brief Restore the caller's PRIMASK. */
             ~critical_section()
             {
                 __set_PRIMASK(_mask);
             }
+
             critical_section(const critical_section&) = delete;
             critical_section& operator=(const critical_section&) = delete;
 
@@ -48,10 +51,6 @@ namespace board
     };
 
     bool init();
-    bool waitBits(volatile uint32_t& reg, uint32_t mask, uint32_t value);
-    void delayUs(uint32_t us);
-    void pinMode(GPIO_TypeDef* port, unsigned pin, unsigned mode, unsigned af = 0);
-    void setLed(unsigned pin, bool on);
-    uint32_t millis();
+    uint32_t apb1TimerHz();
     [[noreturn]] void panic();
 }

@@ -1,112 +1,66 @@
 # 板级配置与验收
 
-## 输入依据与边界
-
-芯片：用户确认的 STM32G474CBT6；外部晶振：截图标注 24 MHz。
-仅从 `C:/Users/LiQun/Desktop/CAP_Crl/cap.ioc` 读取芯片标识与引脚字段，用于核对；
-没有照搬旧工程的时钟、算法、DMA、控制周期、驱动代码。
-
-依据：
-
-- [ST DS12288 数据手册](https://www.st.com/resource/en/datasheet/stm32g474cb.pdf)：封装、存储器、ADC 通道与 AF 表。
-- [ST RM0440 参考手册](https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf)：寄存器、DMA 请求、外设时序；实施时结合工程 CMSIS 定义和 ST 官方驱动定义核查。
-- [ST 官方 DMA 请求定义](https://github.com/STMicroelectronics/stm32g4xx-hal-driver/blob/master/Inc/stm32g4xx_hal_dma.h)。
-- [ST 官方 FDCAN RAM 布局](https://github.com/STMicroelectronics/stm32g4xx-hal-driver/blob/master/Src/stm32g4xx_hal_fdcan.c)：G4 固定布局与 72 字节元素步长。
-- [PX4 架构](https://docs.px4.io/main/en/concept/architecture)、[PX4 风格](https://docs.px4.io/main/en/contribute/code)。
+目标芯片 STM32G474CBT6，HSE 为 24 MHz。当前引脚来自本工程 CubeMX 配置和已有板级表，PWM 引脚角色及台架频率参考 `CAP_Crl`。时钟树采用 HSE → PLL M=6/N=85/R=2，SYSCLK、AHB、APB1 和 APB2 均为 170 MHz，电压为范围 1 升压模式。[原始 CubeMX 配置](../boards/supercap/cubemx/SuperCapControl.ioc)
 
 ## 引脚
 
-| 信号 | MCU 引脚 | 外设/通道 |
+| 信号 | MCU 引脚 | 外设和位置 |
 | --- | --- | --- |
-| Capacitor_Voltage | PA5 | ADC2 IN13 |
-| Capacitor_Current | PA6 | ADC2 IN3 |
-| Chassis_Voltage | PA7 | ADC2 IN4 |
-| Chassis_Current | PB0 | ADC1 IN15 |
-| Output_Voltage | PB1 | ADC1 IN12 |
-| Output_Current | PB2 | ADC2 IN12 |
-| CHA1 / CHA2 | PA8 / PA9 | HRTIM1 AF13，当前保持 GPIO 输出低 |
-| CHB1 / CHB2 | PA10 / PA11 | HRTIM1 AF13，当前保持 GPIO 输出低 |
-| CAN RX / TX | PB3 / PB4 | FDCAN3 AF11，默认不切换 AF、不启动 |
-| DEBUG TX / RX | PB10 / PB11 | USART3 AF7 |
-| LED G / B / R / P | PB12 / PB13 / PB14 / PB15 | GPIO，高电平亮 |
-| SWDIO / SWCLK | PA13 / PA14 | 保持调试功能 |
+| 底盘电流 / 输出电压 | PB0 / PB1 | ADC1 IN15（顺位 1）/ IN12（顺位 2） |
+| 电容电流 / 电容电压 | PA6 / PA5 | ADC2 IN3（顺位 1）/ IN13（顺位 2） |
+| 底盘电压 / 输出电流 | PA7 / PB2 | ADC2 IN4（顺位 3）/ IN12（顺位 4） |
+| PWM A 上管 / 下管 | PA8 / PA9 | HRTIM1 TA1 / TA2，AF13 |
+| PWM B 上管 / 下管 | PA11 / PA10 | HRTIM1 TB2 / TB1，AF13 |
+| CAN RX / TX | PB3 / PB4 | FDCAN3，AF11 |
+| UART TX / RX | PB10 / PB11 | USART3，AF7 |
+| LED 绿 / 蓝 / 红 / 电源 | PB12 / PB13 / PB14 / PB15 | 高电平有效 |
+| SWDIO / SWCLK | PA13 / PA14 | SWD |
 | HSE | PF0 / PF1 | 24 MHz 晶振 |
 
-截图把 PB3 标成 CAN TX、PB4 标成 CAN RX，与芯片固定复用相反；旧工程 IOC 选择的是正确复用。
-必须实际确认 PB4 接收发器 TXD、PB3 接 RXD 后才能启用：
+确认 PB3 接收发器 RXD、PB4 接 TXD 后，可启用 CAN 前台处理。此选项保存在本地 CMake 缓存内：
 
 ```powershell
-cmake --preset debug -DSUPERCAP_CAN_WIRING_CONFIRMED=ON
-cmake --build --preset debug
+cmake --preset firmware -DSUPERCAP_CAN_WIRING_CONFIRMED=ON
+cmake --build --preset firmware
 ```
 
-此选项在 CMake 缓存中持久保存；恢复禁用时显式传入 `OFF`。
+## 时间基准与中断
 
-## 时钟与数据路径
+| 用途 | 外设 | 时序 |
+| --- | --- | --- |
+| HAL 毫秒与超时 | TIM2 | 1 kHz，从启动阶段运行，切换系统时钟时重新配置 |
+| 控制窗口 | HRTIM1 Master | 31.25 kHz，每窗口 32 µs |
+| PWM | HRTIM1 A/B | 125 kHz，每窗口四个周期 |
 
-HSE 24 MHz → PLL M=6/N=72/R=2 → SYSCLK/AHB/APB1/APB2 144 MHz；
-电压范围 1 普通模式，Flash 4 等待周期，中间 AHB /2 后切换全速。
-HSE/PLL/ADC/UART 就绪均有有界等待，失败进入 `panic`，保持功率输出低。
-超时为循环次数上限，不宣称精确毫秒超时。
+Master 重复中断消费 ADC DMA 已完成的半区。前台循环服务 CAN 和串口，系统空闲时执行 WFI。
+
+## 驱动
 
 ### ADC
 
-TIM6 TRGO 1 kHz 同时触发 ADC1/ADC2 常规序列，ADC 时钟 HCLK/4 = 36 MHz，采样时间 47.5 周期，12 位单端。
-ADC1 扫描 IN15/IN12，ADC2 扫描 IN13/IN3/IN4/IN12。
-两组独立 DMA 循环缓冲，每半缓冲为一整帧；HT/TC 中断复制已完成半区，前台仅取得两组序号匹配的数据。
-各通道依序转换，不是六路同时采样；禁止把当前序列解释为已验证的同步电流环采样。
-DMA 错误、HT/TC 同时积压或 ADC overrun 会停止 TIM6/DMA，关闭 HRTIM 输出并记录错误，不自动重启。
+每个窗口内，HRTIM 在 0.5、8.5、16.5、24.5 µs 触发 ADC1 双通道扫描，最后一次同时触发 ADC2 四通道扫描。同一 ADC 内的通道依次转换。DMA1 CH3/4 循环写入两个半区，窗口结束时校验两路完成标志并计算 ADC1 均值。数据不完整或采样故障会锁存 PWM 关断。
 
-输出仅为原始 ADC 码。外部参考电压、分压比、运放增益/偏置和传感器极性尚未标定，不输出臆测的伏特/安培值。
-1 kHz、47.5 周期是本阶段采样验证设置，不是最终控制参数。
-后续确定开关周期后改为 HRTIM 硬件触发，校核采样窗口、RC 建立时间、通道顺序和闭环延迟。
+### PWM
 
-### UART / printf
+PWM 使用 HRTIM1 的 Master、A 和 B。板级候选参数是 125 kHz、软件死区 100 ns、两路同相，高侧有效命令范围为 50 至 950 千分比。UCC21520 外部死区与实际门极时序以上板测量为准。
 
-USART3 115200 8N1；TX 使用 DMA1 CH1、DMAMUX 请求 29、1024 字节有界环形队列。
-`_write` 连接 newlib `printf`。仅允许前台调用，DMA ISR 只推进队列，不格式化、不等待。
-每次临界区最多复制 64 字节，实际屏蔽中断时长仍需上板测量。
-队列满时短写，无空位返回 `-1/EAGAIN`；调用方如使用 stdio，应检查返回值并按需 `clearerr`，不无限重试。
-DMA 错误丢弃当前块、累计错误，再继续下一块；日志可能丢失，不将日志作为控制数据链。
-RX 当前采用 RXNE/错误中断和 128 字节队列，满队列丢新字节；尚未实现 RX DMA/IDLE。
-禁止在控制中断、关闭中断区或未来 RTOS 多任务中直接并发调用 `printf`；未来应设置单独日志任务/生产者接口。
-驱动无动态分配；newlib stdio 预留有界 2 KiB 堆，保留至少 4 KiB 主栈。
+应用通过 `hrtim::start(a, b)` 显式启动，并提供合法的初始占空比。上电诊断应用保持 PA8 至 PA11 为低。运行时 `update(a, b)` 由 DMA1 CH1/2 将一对新值写入比较寄存器的预装载级。驱动在两个 DMA 都完成后统一开放预装载，在后续公共 Master 更新点生效。更新在途时接口返回忙，原占空比可持续到更新生效。DMA 故障和 ADC 故障会锁存关断，普通 `stop()` 可由显式 `start()` 重新启动。
+
+使能实板输出前应在功率级隔离条件下验证两桥臂的启动、停止、成对更新、极性、有效死区及硬件故障关断。硬件故障输入路由取决于板级接线。
 
 ### CAN
 
-FDCAN3 经典 CAN，关闭 FD/BRS；HSE 24 MHz，分频 1，1+18+5=24 tq，1 Mbps，采样点 79.17%，SJW 4 tq。
-支持标准/扩展数据帧，0..8 字节；接收中断进入 16 项环形队列（有效 15 项），发送使用硬件 FIFO。
-G4 FDCAN 不使用通用 DMA，按外设固定消息 SRAM 访问。
-当前接收所有数据 ID、拒绝远程帧；协议 ID、过滤规则、应用超时和 bus-off 恢复策略待确认。
-软件队列满丢新帧并计数；bus-off 锁存状态并拒绝发送，不自动恢复，不在 ISR 里操作业务。
+FDCAN3 工作在经典 CAN、1 Mbps，内核时钟 HSE 24 MHz，位时序 1+18+5 tq，SJW 4 tq。接收中断单次最多从硬件 FIFO 提取三帧，软件环形队列有效深度为 15。软件队列溢出和硬件丢帧计数，bus-off 锁存，发送提交到硬件 FIFO。业务报文定义、过滤列表、超时和 bus-off 恢复策略在后续协议层确定。
 
-### HRTIM
+### UART
 
-保持 ODISR 禁用输出、PA8..11 为推挽低电平、所有计数器停止，没有启用输出 API。
-`prepareCompareDma` 将每路至多 64 个比较值复制到驱动拥有的 SRAM，配置 DMA1 CH4/CH5、请求 96/97、CMP1 目标。
-**此接口只完成准备，不开启 DMA EN、定时器 DMA 请求、DLL、计数器、复用输出或互补波形。**
-比较值相对周期的范围、A/B 同步生效、死区和首周期更新均尚未验证，不能当作可运行的 PWM 驱动。
-后续需要开关频率、死区、最大占空比、双向工作策略、采样相位、故障输入和关断要求，
-再实现预装载/更新事件及 DMA 启停状态机。单个比较值 DMA 不等价于两桥臂参数原子更新。
+USART3 为 115200 8N1。DMA1 CH5 从 1024 字节环形队列发送，CH6 用 128 字节循环缓冲接收；半满、全满和 IDLE 事件将字节交给 256 字节软件队列。发送无空间时短写，接收溢出或 DMA 积压计数，线路或 DMA 故障由前台循环重新武装。当前标准输入输出接入该驱动，printf 在前台格式化并通过 _write 入队，由 TX DMA 发送。
 
-## 中断预算
+## 上板验收
 
-数值小者优先：HRTIM DMA 1（仅预留）、ADC overrun 2、ADC DMA 3、FDCAN 8、UART TX DMA 10、UART RX 11、SysTick 15。
-当前 1 ms tick 只用于启动演示和日志，控制算法没有放入 SysTick。
-未来 RTOS 的系统调用优先级门槛需要重新审查；高优先级控制 ISR 不调用 RTOS/stdio API。
-
-## 验收与待办
-
-- [x] ARM GCC Debug/Release 构建，生成 ELF/HEX/BIN/MAP 与编译数据库。
-- [x] 七个新增 C++ 文件的 clangd 解析检查（关闭 clangd 自身重构动作试验）。
-- [x] 独立 CAN 启用构建通过；日常 Debug/Release 仍保持 CAN 禁用。
-- [x] ELF 中断符号、UART/ADC 缓冲 SRAM 地址和可加载段权限检查。
-- [ ] DAPLink 连接、SWD 复位与烧录验证。
-- [ ] 示波器确认启动、复位、异常期间 PA8..11 保持低；实测 SYSCLK 和晶振。
-- [ ] UART 连续输出、发送队列满、DMA 故障和 RX 溢出验证。
-- [ ] 六路已知输入 ADC 原始码核对，校准参考电压及电流零点，确认无 overrun。
-- [ ] CAN 物理 TX/RX 核对，双节点 1 Mbps 标准/扩展帧收发、队列满和 bus-off 验证。
-- [ ] 在功率级隔离条件下确定 PWM/ADC 参数，验证 DMA 更新、互补死区、硬件关断路径和中断最坏延迟。
-- [ ] 确认控制目标及约束后设计并优化算法，再决定是否需要 RTOS。
-
-构建与静态检查不能验证电气连接、采样精度、功率波形或实时性。当前没有进行烧录或功率级实验。
+- [ ] SWD 启动并复位，确认启动期间 PA8..11 为低，1 秒诊断节拍正常。
+- [ ] 施加已知模拟输入，核对六个通道和时间次序，检查连续运行时的 ADC 序号与错误计数。
+- [ ] 在功率级隔离条件下，测试 PWM 初值、最小和最大占空比、两路 DMA 成对生效、硬件故障关断和停止后重复启动。
+- [ ] 核对 CAN 引脚接线，用两个节点验证经典 CAN 及扩展帧、突发接收和 bus-off。
+- [ ] 串口回环验证跨半区、跨整圈、IDLE 收尾和故障恢复。
+- [ ] 在 CAN 与 UART 同时有负载时，测量 ADC 块完成到发布的最坏延迟、PWM 更新等待和 RTOS 中断调度。

@@ -6,7 +6,7 @@
 
 #include <cerrno>
 
-#include "uart_dma.hpp"
+#include "uart.hpp"
 
 extern "C"
 {
@@ -19,6 +19,11 @@ extern "C"
      */
     int _write(int fd, const char* data, int length)
     {
+        if (__get_IPSR() != 0)
+        {
+            errno = EWOULDBLOCK;
+            return -1;
+        }
         if (fd != 1 && fd != 2)
         {
             errno = EBADF;
@@ -33,7 +38,7 @@ extern "C"
         {
             return 0;
         }
-        const auto written = drivers::uart_dma::instance().write(data, static_cast<unsigned>(length));
+        const auto written = drivers::uart::instance().write(data, static_cast<unsigned>(length));
         if (written == 0)
         {
             errno = EAGAIN;
@@ -62,7 +67,7 @@ extern "C"
         }
         int count = 0;
         uint8_t byte;
-        while (count < length && drivers::uart_dma::instance().read(byte))
+        while (count < length && drivers::uart::instance().read(byte))
         {
             data[count++] = static_cast<char>(byte);
         }
