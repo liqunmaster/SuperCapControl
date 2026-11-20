@@ -15,6 +15,7 @@ add_executable(supercap
     boards/supercap/board.cpp
     boards/supercap/timebase.cpp
     application/control.cpp
+    math/incremental_pid.cpp
     drivers/gpio.cpp
     drivers/adc.cpp
     drivers/hrtim.cpp
@@ -25,7 +26,7 @@ add_executable(supercap
 set(config_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(GENERATE OUTPUT "${config_dir}/board_options.hpp"
     CONTENT "#pragma once\nnamespace board { constexpr bool can_wiring_confirmed = $<IF:$<BOOL:${SUPERCAP_CAN_WIRING_CONFIRMED}>,true,false>; }\n")
-target_include_directories(supercap PRIVATE boards/supercap drivers application "${config_dir}")
+target_include_directories(supercap PRIVATE boards/supercap drivers application math "${config_dir}")
 target_compile_options(supercap PRIVATE -Wall -Wextra -Wshadow -Wconversion)
 target_link_libraries(supercap PRIVATE stm32_hal mcu_options)
 set_target_properties(supercap PROPERTIES SUFFIX .elf)

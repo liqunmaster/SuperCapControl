@@ -5,6 +5,8 @@
         "type": "cortex-debug",
         "request": "launch",
         "servertype": "openocd",
+        "armToolchainPath": "D:/MCU/flash/GCC/bin",
+        "serverpath": "D:/MCU/flash/OpenOCD/bin/openocd.exe",
         "cwd": "${workspaceFolder}",
         "executable": "${workspaceFolder}/build/supercap.elf",
         "device": "STM32G474CB",
