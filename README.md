@@ -32,7 +32,6 @@ cmake --build --preset firmware --target flash
 - `drivers` 封装外设及 DMA、中断交接。应用通过公开接口读取采样、接收消息和提交驱动操作。
 - `application` 管理 31.25 kHz 控制中断、采样窗口消费和前台通信。`src` 保留启动入口与 newlib 标准流重定向。
 - `ThirdParty/ST` 提供 HAL 和 CMSIS。裸机固件未链接 FreeRTOS。
-- `boards/supercap/cubemx` 保存原始 CubeMX 项目配置及其生成记录。快照使用 SysTick、单通道 ADC 序列和旧 DMA 配置。当前板级参数与驱动由根工程维护。[CubeMX 配置](boards/supercap/cubemx/SuperCapControl.ioc)
 - `math` 保存已有数值算法，供后续观测器和控制模块接入。
 
 目录和职责沿用类似 PX4 的板级、驱动、应用分层。自有类型使用小写，方法使用 `lowerCamelCase`，私有字段带下划线前缀。项目开发约定见 [AGENTS.md](AGENTS.md)。

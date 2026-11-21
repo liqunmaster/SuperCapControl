@@ -11,7 +11,7 @@
 namespace
 {
         constexpr uint32_t receive_events = FDCAN_IT_RX_FIFO0_NEW_MESSAGE | FDCAN_IT_RX_FIFO0_MESSAGE_LOST;
-        constexpr uint32_t events = receive_events | FDCAN_IT_BUS_OFF;
+        constexpr uint32_t events         = receive_events | FDCAN_IT_BUS_OFF;
 }
 
 namespace drivers
@@ -35,7 +35,7 @@ namespace drivers
         {
                 RCC_PeriphCLKInitTypeDef clock{};
                 clock.PeriphClockSelection = RCC_PERIPHCLK_FDCAN;
-                clock.FdcanClockSelection = RCC_FDCANCLKSOURCE_HSE;
+                clock.FdcanClockSelection  = RCC_FDCANCLKSOURCE_HSE;
                 if (HAL_RCCEx_PeriphCLKConfig(&clock) != HAL_OK) {
                         return false;
                 }
@@ -57,8 +57,7 @@ namespace drivers
                 _can.Init.DataTimeSeg2 = 1;
                 _can.Init.TxFifoQueueMode = FDCAN_TX_FIFO_OPERATION;
                 if (HAL_FDCAN_Init(&_can) != HAL_OK ||
-                        HAL_FDCAN_ConfigGlobalFilter(&_can, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_ACCEPT_IN_RX_FIFO0,
-                                                                 FDCAN_REJECT_REMOTE, FDCAN_REJECT_REMOTE) != HAL_OK ||
+                        HAL_FDCAN_ConfigGlobalFilter(&_can, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_ACCEPT_IN_RX_FIFO0, FDCAN_REJECT_REMOTE, FDCAN_REJECT_REMOTE) != HAL_OK ||
                         HAL_FDCAN_ConfigInterruptLines(&_can, events, FDCAN_INTERRUPT_LINE0) != HAL_OK ||
                         HAL_FDCAN_ActivateNotification(&_can, events, 0) != HAL_OK ||
                         HAL_FDCAN_Start(&_can) != HAL_OK) {

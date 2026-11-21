@@ -4,6 +4,27 @@
  */
 #include "board.hpp"
 
+/**
+ * @brief Drive both gate drivers' inputs low before clock and runtime initialization.
+ * @pre The reset handler has initialized the stack pointer.
+ *
+ */
+extern "C" void board_early_gate_inputs_low()
+{
+        static_assert(board::PwmPins == 0x0f00U, "Update the GPIO mode masks when the gate pins move");
+        constexpr uint32_t mode_mask   = GPIO_MODER_MODE8 | GPIO_MODER_MODE9 | GPIO_MODER_MODE10 | GPIO_MODER_MODE11;
+        constexpr uint32_t output_mode = GPIO_MODER_MODE8_0 | GPIO_MODER_MODE9_0 |
+                                         GPIO_MODER_MODE10_0 | GPIO_MODER_MODE11_0;
+        constexpr uint32_t pull_down   = GPIO_PUPDR_PUPD8_1 | GPIO_PUPDR_PUPD9_1 |
+                                         GPIO_PUPDR_PUPD10_1 | GPIO_PUPDR_PUPD11_1;
+        __HAL_RCC_GPIOA_CLK_ENABLE();
+        GPIOA->BSRR = static_cast<uint32_t>(board::PwmPins) << 16U;
+        GPIOA->OTYPER &= ~static_cast<uint32_t>(board::PwmPins);
+        MODIFY_REG(GPIOA->PUPDR, mode_mask, pull_down);
+        MODIFY_REG(GPIOA->MODER, mode_mask, output_mode);
+        __DSB();
+}
+
 namespace
 {
         /**
@@ -14,8 +35,8 @@ namespace
         {
                 HAL_GPIO_WritePin(port, static_cast<uint16_t>(pins), level);
                 GPIO_InitTypeDef config{};
-                config.Pin = pins;
-                config.Mode = GPIO_MODE_OUTPUT_PP;
+                config.Pin   = pins;
+                config.Mode  = GPIO_MODE_OUTPUT_PP;
                 config.Speed = GPIO_SPEED_FREQ_HIGH;
                 HAL_GPIO_Init(port, &config);
         }
@@ -47,7 +68,7 @@ namespace board
 
                 RCC_OscInitTypeDef oscillator{};
                 oscillator.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-                oscillator.HSEState = RCC_HSE_ON;
+                oscillator.HSEState       = RCC_HSE_ON;
                 oscillator.PLL.PLLState = RCC_PLL_ON;
                 oscillator.PLL.PLLSource = RCC_PLLSOURCE_HSE;
                 oscillator.PLL.PLLM = RCC_PLLM_DIV6;
@@ -95,8 +116,7 @@ namespace board
         {
                 __disable_irq();
                 if (__HAL_RCC_HRTIM1_IS_CLK_ENABLED()) {
-                        HRTIM1->sCommonRegs.ODISR = HRTIM_ODISR_TA1ODIS | HRTIM_ODISR_TA2ODIS |
-                                                              HRTIM_ODISR_TB1ODIS | HRTIM_ODISR_TB2ODIS;
+                        HRTIM1->sCommonRegs.ODISR = HRTIM_ODISR_TA1ODIS | HRTIM_ODISR_TA2ODIS | HRTIM_ODISR_TB1ODIS | HRTIM_ODISR_TB2ODIS;
                 }
                 __HAL_RCC_GPIOA_CLK_ENABLE();
                 __HAL_RCC_GPIOB_CLK_ENABLE();

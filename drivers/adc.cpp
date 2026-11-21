@@ -15,12 +15,10 @@ namespace
          * @brief Configure a regular sequence and the circular, half-word DMA channel it owns.
          *
          */
-        bool configureAdc(ADC_HandleTypeDef& adc, DMA_HandleTypeDef& dma, ADC_TypeDef* instance,
-                              DMA_Channel_TypeDef* channel, uint32_t request, const uint32_t* channels, unsigned count)
+        bool configureAdc(ADC_HandleTypeDef& adc, DMA_HandleTypeDef& dma, ADC_TypeDef* instance, DMA_Channel_TypeDef* channel, uint32_t request, const uint32_t* channels, unsigned count)
         {
                 dma.Instance = channel;
-                dma.Init = {request, DMA_PERIPH_TO_MEMORY, DMA_PINC_DISABLE, DMA_MINC_ENABLE,
-                                    DMA_PDATAALIGN_HALFWORD, DMA_MDATAALIGN_HALFWORD, DMA_CIRCULAR, DMA_PRIORITY_HIGH};
+                dma.Init     = {request, DMA_PERIPH_TO_MEMORY, DMA_PINC_DISABLE, DMA_MINC_ENABLE, DMA_PDATAALIGN_HALFWORD, DMA_MDATAALIGN_HALFWORD, DMA_CIRCULAR, DMA_PRIORITY_HIGH};
                 if (HAL_DMA_Init(&dma) != HAL_OK) {
                         return false;
                 }
@@ -45,10 +43,10 @@ namespace
 
                 for (unsigned index = 0; index < count; ++index) {
                         ADC_ChannelConfTypeDef config{};
-                        config.Channel = channels[index];
-                        config.Rank = ranks[index];
+                        config.Channel      = channels[index];
+                        config.Rank         = ranks[index];
                         config.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
-                        config.SingleDiff = ADC_SINGLE_ENDED;
+                        config.SingleDiff   = ADC_SINGLE_ENDED;
                         config.OffsetNumber = ADC_OFFSET_NONE;
                         if (HAL_ADC_ConfigChannel(&adc, &config) != HAL_OK) {
                                 return false;
@@ -158,7 +156,7 @@ namespace drivers
                 }
                 DMA1->IFCR = expected;
                 __DMB();
-                const volatile uint16_t* first = &_raw1[8 * half];
+                const volatile uint16_t* first  = &_raw1[8 * half];
                 const volatile uint16_t* second = &_raw2[4 * half];
                 uint32_t current = 0;
                 uint32_t voltage = 0;

@@ -18,12 +18,12 @@ extern "C" HAL_StatusTypeDef HAL_InitTick(uint32_t priority)
         TIM2->PSC = 0;
         TIM2->ARR = (board::apb1TimerHz() / 1000U) * static_cast<uint32_t>(uwTickFreq) - 1U;
         TIM2->EGR = TIM_EGR_UG;
-        TIM2->SR = 0;
+        TIM2->SR  = 0;
         HAL_NVIC_ClearPendingIRQ(TIM2_IRQn);
         HAL_NVIC_SetPriority(TIM2_IRQn, priority, 0);
         HAL_NVIC_EnableIRQ(TIM2_IRQn);
         TIM2->DIER = TIM_DIER_UIE;
-        TIM2->CR1 = TIM_CR1_CEN;
+        TIM2->CR1  = TIM_CR1_CEN;
         uwTickPrio = priority;
         return HAL_OK;
 }

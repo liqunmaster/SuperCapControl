@@ -1,6 +1,6 @@
 /**
  * @file control.cpp
- * @brief Fixed-rate control input and foreground communications.
+ * @brief 处理固定频率的控制与前台通信。
  */
 #include "control.hpp"
 
@@ -16,15 +16,14 @@
 #include "gpio.hpp"
 #include "hrtim.hpp"
 #include "uart.hpp"
-#include "incremental_pid.hpp"
 
 namespace application
 {
         using namespace control_config;
 
         /**
-         * @brief Return the application instance shared by the interrupt and foreground loop.
-         * @return The sole control instance.
+         * @brief 获取控制中断和前台循环共享的应用实例。
+         * @return 唯一的控制实例。
          *
          */
         control& control::instance()
@@ -34,8 +33,8 @@ namespace application
         }
 
         /**
-         * @brief Receive newline-delimited VSET commands in millivolts.
-         * @param uart Initialized UART used to receive commands.
+         * @brief 接收以换行符结束的十进制电压设定，单位为伏特。
+         * @param uart 用于接收命令的已初始化串口。
          *
          */
         void control::receiveVoltageTarget(drivers::uart& uart)
@@ -47,13 +46,16 @@ namespace application
                         }
                         if (byte == '\r' || byte == '\n') {
                                 command_line[command_length] = '\0';
-                                if (!command_overflow && std::strncmp(command_line, "VSET ", 5) == 0 &&
-                                        command_length > 5 && command_length <= 11 &&
-                                        std::strspn(command_line + 5, "0123456789") == command_length - 5) {
-                                        const auto requested = static_cast<uint32_t>(
-                                                std::strtoul(command_line + 5, nullptr, 10));
-                                        board::critical_section lock;
-                                        target_mv = bus_undervoltage ? 0U : requested;
+                                if (!command_overflow && command_length != 0 &&
+                                        std::strspn(command_line, "0123456789.") == command_length) {
+                                        char* end;
+                                        const double millivolts = std::strtod(command_line, &end) * 1000.0;
+                                        if (end == command_line + command_length && millivolts <= UINT32_MAX) {
+                                                const auto requested = static_cast<uint32_t>(millivolts + 0.5);
+                                                board::critical_section lock;
+                                                target_mv      = requested;
+                                                target_pending = !bus_undervoltage;
+                                        }
                                 }
                                 command_length = 0;
                                 command_overflow = false;
@@ -68,8 +70,8 @@ namespace application
         }
 
         /**
-         * @brief Stop both bridges on bus undervoltage and discard the previous setpoint.
-         * @param code Raw bus sample from PA7.
+         * @brief 母线欠压时关断两个桥臂，并取消待应用的 PWM 更新。
+         * @param code 从 PA7 读取的母线电压 ADC 原始值。
          *
          */
         void control::checkBusVoltage(uint16_t code)
@@ -79,7 +81,7 @@ namespace application
                         bus_undervoltage = low;
                         drivers::gpio::write(GPIOB, board::LedPower, low);
                         if (low) {
-                                target_mv = 0;
+                                target_pending = false;
                                 commanded_duty_a = 0;
                                 auto& pwm = drivers::hrtim::instance();
                                 if (pwm.running()) {
@@ -90,12 +92,11 @@ namespace application
         }
 
         /**
-         * @brief Close the capacitor voltage loop using the A high-side duty.
-         * @param voltage_code Raw capacitor voltage sample.
-         * @param bus_code Raw bus voltage sample.
+         * @brief 应用待处理的电容电压设定，并保持换算得到的占空比。
+         * @param bus_code 母线电压的 ADC 原始值。
          *
          */
-        void control::updateVoltageLoop(uint16_t voltage_code, uint16_t bus_code)
+        void control::applyVoltageTarget(uint16_t bus_code)
         {
                 auto& pwm = drivers::hrtim::instance();
                 const uint32_t requested = target_mv;
@@ -104,32 +105,24 @@ namespace application
                                 pwm.stop();
                         }
                         commanded_duty_a = 0;
+                        target_pending = false;
                         return;
                 }
-                const float target = static_cast<float>(requested) * 0.001f;
-                const float measured = voltage_code * capacitor_volts_per_code;
-                if (pwm.faulted()) {
+                if (!target_pending || pwm.faulted()) {
                         return;
                 }
-                const float bus = bus_code * capacitor_volts_per_code;
-                const float feedforward = std::fmin(950.0f, std::fmax(50.0f, high_side_b * target / bus));
-                const bool running = pwm.running();
-                auto next = voltage_loop;
-                if (!running) {
-                        next.reset(feedforward, 0.0f);
-                }
-                const float change = running ? feedforward - previous_feedforward : 0.0f;
-                const auto duty = static_cast<uint16_t>(next.update(target, measured, change) + 0.5f);
-                const bool accepted = running ? (duty == commanded_duty_a || pwm.update(duty, high_side_b)) :
-                                                        pwm.start(duty, high_side_b);
+                const float bus       = bus_code * capacitor_volts_per_code;
+                const float target    = static_cast<float>(requested) * 0.001f;
+                const float estimated = high_side_b * target / bus;
+                const auto duty = static_cast<uint16_t>(std::fmin(max_duty_a, std::fmax(min_duty_a, estimated)) + 0.5f);
+                const bool accepted = pwm.running() ? (duty == commanded_duty_a || pwm.update(duty, high_side_b)) : pwm.start(duty, high_side_b);
                 if (accepted) {
-                        voltage_loop = next;
-                        previous_feedforward = feedforward;
                         commanded_duty_a = duty;
+                        target_pending = false;
                 }
         }
         /**
-         * @brief Consume the next ADC window at the master timer interrupt.
+         * @brief 在主定时器中断中读取并处理下一组 ADC 窗口采样。
          *
          */
         void control::handleControlTick()
@@ -137,7 +130,7 @@ namespace application
                 if (!drivers::hrtim::takeControlTick() || control_timeout) {
                         return;
                 }
-                const uint32_t begin = DWT->CYCCNT;
+                const uint32_t begin   = DWT->CYCCNT;
                 const uint32_t elapsed = begin - previous_tick;
                 previous_tick = begin;
                 if (windows != 0 && elapsed > period_cycles + period_cycles / 2U) {
@@ -145,16 +138,8 @@ namespace application
                         drivers::hrtim::disableOutputs();
                         return;
                 }
-                if (windows != 0) {
-                        const uint32_t error = elapsed >= period_cycles ?
-                                elapsed - period_cycles : period_cycles - elapsed;
-                        if (error > peak_period_error_cycles) {
-                                peak_period_error_cycles = error;
-                        }
-                }
                 ++windows;
                 if (!drivers::adc::instance().readWindow(windows, input)) {
-                        ++missed;
                         commanded_duty_a = 0;
                 }
                 else {
@@ -166,13 +151,12 @@ namespace application
                                         drivers::hrtim::disableOutputs();
                                 }
                         }
-                        else if ((windows & (voltage_loop_divider - 1U)) == 0U) {
+                        else if ((windows & (voltage_update_divider - 1U)) == 0U) {
                                 measured_mv = static_cast<uint16_t>(
                                         input.last.capacitor_voltage * capacitor_volts_per_code * 1000.0f + 0.5f);
-                                updateVoltageLoop(input.last.capacitor_voltage, input.last.chassis_voltage);
+                                applyVoltageTarget(input.last.chassis_voltage);
                         }
                 }
-                latest_cycles = DWT->CYCCNT - begin;
                 if (drivers::hrtim::controlTickPending()) {
                         control_timeout = true;
                         drivers::hrtim::disableOutputs();
@@ -180,7 +164,7 @@ namespace application
         }
 
         /**
-         * @brief Arm both DMA receivers before starting the hardware window clock.
+         * @brief 启动硬件采样窗口定时器前，使能两路 ADC DMA 接收。
          *
          */
         [[noreturn]] void control::run()
@@ -211,39 +195,24 @@ namespace application
                                 drivers::gpio::write(GPIOB, board::LedBlue, true);
                         }
                         if (drivers::uart::instance().txPending() < telemetry_tx_low_watermark) {
-                                uint32_t sequence;
-                                uint32_t lost;
-                                uint32_t cycles;
-                                uint32_t jitter;
                                 uint32_t target;
                                 unsigned voltage;
                                 unsigned duty;
                                 {
                                         board::critical_section lock;
-                                        sequence = windows;
-                                        lost = missed;
-                                        cycles = latest_cycles;
-                                        jitter = peak_period_error_cycles;
-                                        peak_period_error_cycles = 0;
                                         target = target_mv;
                                         voltage = measured_mv;
                                         duty = drivers::hrtim::instance().faulted() ? 0U : commanded_duty_a;
                                 }
                                 clearerr(stdout);
-                                std::printf("voltage:%lu,%u,%u,%lu,%lu,%lu,%lu,%u\n",
-                                                        static_cast<unsigned long>(target), voltage, duty,
-                                                        static_cast<unsigned long>(cycles),
-                                                        static_cast<unsigned long>(jitter),
-                                                        static_cast<unsigned long>(lost),
-                                                        static_cast<unsigned long>(sequence),
-                                                        static_cast<unsigned>(control_timeout));
+                                std::printf("voltage:%lu.%03lu,%u.%03u,%u\n", static_cast<unsigned long>(target / 1000U), static_cast<unsigned long>(target % 1000U), voltage / 1000U, voltage % 1000U, duty);
                         }
                         __WFI();
                 }
         }
 
         /**
-         * @brief Enter the foreground loop for the application singleton.
+         * @brief 进入控制应用实例的前台循环。
          *
          */
         [[noreturn]] void run()
@@ -253,7 +222,7 @@ namespace application
 }
 
 /**
- * @brief Dispatch the HRTIM master interrupt to the control application.
+ * @brief 将 HRTIM 主定时器中断交给控制应用处理。
  *
  */
 extern "C" void HRTIM1_Master_IRQHandler()

@@ -15,18 +15,18 @@ namespace board
         constexpr uint32_t UartBaud = 115200;        ///< USART3 line rate.
         constexpr uint32_t PwmHz = 125000;          ///< HRTIM bench switching frequency.
         constexpr uint32_t PwmDeadTimeNs = 100;     ///< Bench software dead time per edge.
-        constexpr unsigned AdcErrorPriority = 2;
+        constexpr unsigned AdcErrorPriority   = 2;
         constexpr unsigned AdcTriggerPriority = 3;
-        constexpr unsigned AdcDmaPriority = 4;
-        constexpr unsigned PwmDmaPriority = 3;
-        constexpr unsigned CanPriority = 8;
-        constexpr unsigned UartPriority = 10;
+        constexpr unsigned AdcDmaPriority     = 4;
+        constexpr unsigned PwmDmaPriority     = 3;
+        constexpr unsigned CanPriority        = 8;
+        constexpr unsigned UartPriority       = 10;
 
         constexpr uint16_t LedGreen = GPIO_PIN_12;
-        constexpr uint16_t LedBlue = GPIO_PIN_13;
-        constexpr uint16_t LedRed = GPIO_PIN_14;
+        constexpr uint16_t LedBlue  = GPIO_PIN_13;
+        constexpr uint16_t LedRed   = GPIO_PIN_14;
         constexpr uint16_t LedPower = GPIO_PIN_15;
-        constexpr uint16_t PwmPins = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11;
+        constexpr uint16_t PwmPins  = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11;
 
         /**
          * @brief Short, nestable PRIMASK guard for task and IRQ data handoff.

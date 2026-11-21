@@ -49,12 +49,12 @@ namespace
         bool configureOutput(HRTIM_HandleTypeDef& timer, uint32_t index, uint32_t output, bool high_side)
         {
                 HRTIM_OutputCfgTypeDef pin{};
-                pin.Polarity = HRTIM_OUTPUTPOLARITY_HIGH;
-                pin.SetSource = high_side ? HRTIM_OUTPUTSET_TIMPER : HRTIM_OUTPUTSET_TIMCMP1;
+                pin.Polarity    = HRTIM_OUTPUTPOLARITY_HIGH;
+                pin.SetSource   = high_side ? HRTIM_OUTPUTSET_TIMPER : HRTIM_OUTPUTSET_TIMCMP1;
                 pin.ResetSource = high_side ? HRTIM_OUTPUTRESET_TIMCMP1 : HRTIM_OUTPUTRESET_TIMPER;
-                pin.IdleMode = HRTIM_OUTPUTIDLEMODE_IDLE;
-                pin.IdleLevel = HRTIM_OUTPUTIDLELEVEL_INACTIVE;
-                pin.FaultLevel = HRTIM_OUTPUTFAULTLEVEL_INACTIVE;
+                pin.IdleMode    = HRTIM_OUTPUTIDLEMODE_IDLE;
+                pin.IdleLevel   = HRTIM_OUTPUTIDLELEVEL_INACTIVE;
+                pin.FaultLevel  = HRTIM_OUTPUTFAULTLEVEL_INACTIVE;
                 return HAL_HRTIM_WaveformOutputConfig(&timer, index, output, &pin) == HAL_OK;
         }
 
@@ -81,12 +81,12 @@ namespace
                 }
 
                 config.UpdateTrigger = HRTIM_TIMUPDATETRIGGER_MASTER;
-                config.ResetTrigger = HRTIM_TIMRESETTRIGGER_MASTER_PER;
+                config.ResetTrigger  = HRTIM_TIMRESETTRIGGER_MASTER_PER;
                 config.DeadTimeInsertion = dead_time_ticks == 0 ? HRTIM_TIMDEADTIMEINSERTION_DISABLED :
                                                                         HRTIM_TIMDEADTIMEINSERTION_ENABLED;
                 HRTIM_DeadTimeCfgTypeDef dead_time{};
-                dead_time.Prescaler = HRTIM_TIMDEADTIME_PRESCALERRATIO_MUL8;
-                dead_time.RisingValue = dead_time_ticks;
+                dead_time.Prescaler    = HRTIM_TIMDEADTIME_PRESCALERRATIO_MUL8;
+                dead_time.RisingValue  = dead_time_ticks;
                 dead_time.FallingValue = dead_time_ticks;
                 return HAL_HRTIM_WaveformTimerConfig(&timer, index, &config) == HAL_OK &&
                               HAL_HRTIM_DeadTimeConfig(&timer, index, &dead_time) == HAL_OK;

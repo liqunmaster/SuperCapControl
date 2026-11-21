@@ -62,6 +62,9 @@ Reset_Handler:
   ldr   r0, =_estack
   mov   sp, r0          /* set stack pointer */
 
+/* Drive the gate inputs low before initializing the C runtime. */
+    bl  board_early_gate_inputs_low
+
 /* Call the clock system initialization function.*/
     bl  SystemInit
 

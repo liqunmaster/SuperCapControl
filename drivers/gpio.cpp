@@ -15,10 +15,10 @@ namespace
         void configure(GPIO_TypeDef* port, uint16_t pins, uint32_t mode, uint32_t pull, uint32_t af)
         {
                 GPIO_InitTypeDef config{};
-                config.Pin = pins;
-                config.Mode = mode;
-                config.Pull = pull;
-                config.Speed = GPIO_SPEED_FREQ_HIGH;
+                config.Pin       = pins;
+                config.Mode      = mode;
+                config.Pull      = pull;
+                config.Speed     = GPIO_SPEED_FREQ_HIGH;
                 config.Alternate = af;
                 HAL_GPIO_Init(port, &config);
         }
