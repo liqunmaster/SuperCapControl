@@ -59,7 +59,7 @@ namespace drivers
                         DMA_HandleTypeDef _dma1{};
                         DMA_HandleTypeDef _dma2{};
                         alignas(4) volatile uint16_t _raw1[2 * 4 * 2]{};
-                        alignas(4) volatile uint16_t _raw2[2 * 4]{};
+                        alignas(4) volatile uint16_t _raw2[2 * 4 * 4]{};
                         volatile uint32_t _errors = 0;
                         volatile bool _running = false;
         };

@@ -15,12 +15,10 @@ namespace
          * @brief Configure a byte-wide USART DMA channel linked to a HAL handle.
          *
          */
-        bool configureDma(DMA_HandleTypeDef& dma, DMA_Channel_TypeDef* instance, uint32_t request,
-                              uint32_t direction, uint32_t mode)
+        bool configureDma(DMA_HandleTypeDef& dma, DMA_Channel_TypeDef* instance, uint32_t request, uint32_t direction, uint32_t mode)
         {
                 dma.Instance = instance;
-                dma.Init = {request, direction, DMA_PINC_DISABLE, DMA_MINC_ENABLE,
-                                    DMA_PDATAALIGN_BYTE, DMA_MDATAALIGN_BYTE, mode, DMA_PRIORITY_LOW};
+                dma.Init     = {request, direction, DMA_PINC_DISABLE, DMA_MINC_ENABLE, DMA_PDATAALIGN_BYTE, DMA_MDATAALIGN_BYTE, mode, DMA_PRIORITY_LOW};
                 return HAL_DMA_Init(&dma) == HAL_OK;
         }
 
@@ -64,20 +62,13 @@ namespace drivers
                 __HAL_RCC_USART3_CLK_ENABLE();
                 gpio::alternate(GPIOB, GPIO_PIN_10 | GPIO_PIN_11, GPIO_AF7_USART3, GPIO_PULLUP);
                 _uart.Instance = USART3;
-                _uart.Init = {board::UartBaud, UART_WORDLENGTH_8B, UART_STOPBITS_1, UART_PARITY_NONE,
-                                      UART_MODE_TX_RX, UART_HWCONTROL_NONE, UART_OVERSAMPLING_16,
-                                      UART_ONE_BIT_SAMPLE_DISABLE,
-                                      UART_PRESCALER_DIV1};
-                if (!configureDma(_tx_dma, DMA1_Channel5, DMA_REQUEST_USART3_TX, DMA_MEMORY_TO_PERIPH, DMA_NORMAL) ||
-                        !configureDma(_rx_dma, DMA1_Channel6, DMA_REQUEST_USART3_RX,
-                                      DMA_PERIPH_TO_MEMORY, DMA_CIRCULAR)) {
+                _uart.Init     = {board::UartBaud, UART_WORDLENGTH_8B, UART_STOPBITS_1, UART_PARITY_NONE, UART_MODE_TX_RX, UART_HWCONTROL_NONE, UART_OVERSAMPLING_16, UART_ONE_BIT_SAMPLE_DISABLE, UART_PRESCALER_DIV1};
+                if (!configureDma(_tx_dma, DMA1_Channel5, DMA_REQUEST_USART3_TX, DMA_MEMORY_TO_PERIPH, DMA_NORMAL) || !configureDma(_rx_dma, DMA1_Channel6, DMA_REQUEST_USART3_RX, DMA_PERIPH_TO_MEMORY, DMA_CIRCULAR)) {
                         return false;
                 }
                 __HAL_LINKDMA(&_uart, hdmatx, _tx_dma);
                 __HAL_LINKDMA(&_uart, hdmarx, _rx_dma);
-                if (HAL_UART_Init(&_uart) != HAL_OK ||
-                        HAL_UARTEx_ReceiveToIdle_DMA(&_uart, const_cast<uint8_t*>(_rx_dma_buffer),
-                                                     RxDmaSize) != HAL_OK) {
+                if (HAL_UART_Init(&_uart) != HAL_OK || HAL_UARTEx_ReceiveToIdle_DMA(&_uart, const_cast<uint8_t*>(_rx_dma_buffer), RxDmaSize) != HAL_OK) {
                         return false;
                 }
 
@@ -111,10 +102,8 @@ namespace drivers
                 std::size_t written = 0;
                 while (written < size) {
                         board::critical_section lock;
-                        const unsigned room = (_tx_tail + TxSize - 1U - _tx_head) % TxSize;
-                        const std::size_t count = std::min({size - written, static_cast<std::size_t>(room),
-                                                                        static_cast<std::size_t>(TxSize - _tx_head),
-                                                                        std::size_t{32}});
+                        const unsigned room     = (_tx_tail + TxSize - 1U - _tx_head) % TxSize;
+                        const std::size_t count = std::min({size - written, static_cast<std::size_t>(room), static_cast<std::size_t>(TxSize - _tx_head), std::size_t{32}});
                         if (count == 0) {
                                 break;
                         }

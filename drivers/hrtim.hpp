@@ -37,8 +37,8 @@ namespace drivers
                         HRTIM_HandleTypeDef _timer{};
                         DMA_HandleTypeDef _dma_a{};
                         DMA_HandleTypeDef _dma_b{};
-                        alignas(4) uint32_t _compare_a = 0;
-                        alignas(4) uint32_t _compare_b = 0;
+                        uint32_t _compare_a[2]{};
+                        uint32_t _compare_b[2]{};
                         unsigned _pending = 0;
                         bool _await_latch = false;
                         bool _ready = false;

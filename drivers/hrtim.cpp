@@ -10,13 +10,15 @@ namespace
 {
         constexpr uint64_t timer_hz        = static_cast<uint64_t>(board::CoreHz) * 32U;
         constexpr uint32_t pwm_period      = static_cast<uint32_t>(timer_hz / board::PwmHz);
-        constexpr uint32_t dead_time_ticks = static_cast<uint32_t>(
-                (static_cast<uint64_t>(board::PwmDeadTimeNs) * 8U * board::CoreHz + 999999999U) / 1000000000U);
+        constexpr uint32_t dead_time_ticks = static_cast<uint32_t>((static_cast<uint64_t>(board::PwmDeadTimeNs) * 8U * board::CoreHz + 999999999U) / 1000000000U);
         constexpr uint32_t outputs         = HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2 | HRTIM_OUTPUT_TB1 | HRTIM_OUTPUT_TB2;
-        constexpr uint32_t counters    = HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B;
-        constexpr uint32_t update_mask = HRTIM_CR1_TAUDIS | HRTIM_CR1_TBUDIS;
-        constexpr uint32_t a = HRTIM_TIMERINDEX_TIMER_A;
-        constexpr uint32_t b = HRTIM_TIMERINDEX_TIMER_B;
+        constexpr uint32_t counters        = HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B;
+        constexpr uint32_t update_mask     = HRTIM_CR1_TAUDIS | HRTIM_CR1_TBUDIS;
+        constexpr uint32_t a               = HRTIM_TIMERINDEX_TIMER_A;
+        constexpr uint32_t b               = HRTIM_TIMERINDEX_TIMER_B;
+
+        constexpr uint32_t sample_a = pwm_period / 2U - 3040U;
+        constexpr uint32_t sample_b = pwm_period / 2U + 128U;
 
         static_assert(timer_hz % board::PwmHz == 0 && pwm_period <= UINT16_MAX, "Invalid HRTIM period");
         static_assert(dead_time_ticks <= 0x1FF && dead_time_ticks * 8U < pwm_period / 20U, "Invalid dead time");
@@ -31,14 +33,13 @@ namespace
         }
 
         /**
-         * @brief Configure one HRTIM compare DMA channel for a single word per transaction.
+         * @brief 配置依次写入两个比较寄存器的 DMA 通道。
          *
          */
         bool configureDma(DMA_HandleTypeDef& dma, DMA_Channel_TypeDef* channel, uint32_t request)
         {
                 dma.Instance = channel;
-                dma.Init = {request, DMA_MEMORY_TO_PERIPH, DMA_PINC_DISABLE, DMA_MINC_DISABLE,
-                                    DMA_PDATAALIGN_WORD, DMA_MDATAALIGN_WORD, DMA_NORMAL, DMA_PRIORITY_VERY_HIGH};
+                dma.Init     = {request, DMA_MEMORY_TO_PERIPH, DMA_PINC_ENABLE, DMA_MINC_ENABLE, DMA_PDATAALIGN_WORD, DMA_MDATAALIGN_WORD, DMA_NORMAL, DMA_PRIORITY_VERY_HIGH};
                 return HAL_DMA_Init(&dma) == HAL_OK;
         }
 
@@ -50,8 +51,8 @@ namespace
         {
                 HRTIM_OutputCfgTypeDef pin{};
                 pin.Polarity    = HRTIM_OUTPUTPOLARITY_HIGH;
-                pin.SetSource   = high_side ? HRTIM_OUTPUTSET_TIMPER : HRTIM_OUTPUTSET_TIMCMP1;
-                pin.ResetSource = high_side ? HRTIM_OUTPUTRESET_TIMCMP1 : HRTIM_OUTPUTRESET_TIMPER;
+                pin.SetSource   = high_side ? HRTIM_OUTPUTSET_TIMCMP3 : HRTIM_OUTPUTSET_TIMCMP4;
+                pin.ResetSource = high_side ? HRTIM_OUTPUTRESET_TIMCMP4 : HRTIM_OUTPUTRESET_TIMCMP3;
                 pin.IdleMode    = HRTIM_OUTPUTIDLEMODE_IDLE;
                 pin.IdleLevel   = HRTIM_OUTPUTIDLELEVEL_INACTIVE;
                 pin.FaultLevel  = HRTIM_OUTPUTFAULTLEVEL_INACTIVE;
@@ -65,10 +66,9 @@ namespace
         bool configureTimer(HRTIM_HandleTypeDef& timer, uint32_t index)
         {
                 HRTIM_TimeBaseCfgTypeDef timebase{};
-                timebase.Period = pwm_period;
-                timebase.PrescalerRatio = index == HRTIM_TIMERINDEX_MASTER ? HRTIM_PRESCALERRATIO_MUL8 :
-                                                                                    HRTIM_PRESCALERRATIO_MUL32;
-                timebase.Mode = HRTIM_MODE_CONTINUOUS;
+                timebase.Period         = pwm_period;
+                timebase.PrescalerRatio = index == HRTIM_TIMERINDEX_MASTER ? HRTIM_PRESCALERRATIO_MUL8 : HRTIM_PRESCALERRATIO_MUL32;
+                timebase.Mode           = HRTIM_MODE_CONTINUOUS;
                 if (HAL_HRTIM_TimeBaseConfig(&timer, index, &timebase) != HAL_OK) {
                         return false;
                 }
@@ -80,26 +80,35 @@ namespace
                         return HAL_HRTIM_WaveformTimerConfig(&timer, index, &config) == HAL_OK;
                 }
 
-                config.UpdateTrigger = HRTIM_TIMUPDATETRIGGER_MASTER;
-                config.ResetTrigger  = HRTIM_TIMRESETTRIGGER_MASTER_PER;
-                config.DeadTimeInsertion = dead_time_ticks == 0 ? HRTIM_TIMDEADTIMEINSERTION_DISABLED :
-                                                                        HRTIM_TIMDEADTIMEINSERTION_ENABLED;
+                config.UpdateTrigger     = HRTIM_TIMUPDATETRIGGER_MASTER;
+                config.ResetTrigger      = index == a ? HRTIM_TIMRESETTRIGGER_MASTER_PER : HRTIM_TIMRESETTRIGGER_MASTER_CMP3;
+                config.DeadTimeInsertion = dead_time_ticks == 0 ? HRTIM_TIMDEADTIMEINSERTION_DISABLED : HRTIM_TIMDEADTIMEINSERTION_ENABLED;
                 HRTIM_DeadTimeCfgTypeDef dead_time{};
                 dead_time.Prescaler    = HRTIM_TIMDEADTIME_PRESCALERRATIO_MUL8;
                 dead_time.RisingValue  = dead_time_ticks;
                 dead_time.FallingValue = dead_time_ticks;
-                return HAL_HRTIM_WaveformTimerConfig(&timer, index, &config) == HAL_OK &&
-                              HAL_HRTIM_DeadTimeConfig(&timer, index, &dead_time) == HAL_OK;
+                return HAL_HRTIM_WaveformTimerConfig(&timer, index, &config) == HAL_OK && HAL_HRTIM_DeadTimeConfig(&timer, index, &dead_time) == HAL_OK;
         }
 
         /**
-         * @brief Send one DMA word to the timer's compare-1 preload register.
+         * @brief 计算居中 PWM 的两个开关边沿。
          *
          */
-        bool armCompare(DMA_HandleTypeDef& dma, const uint32_t& source, volatile uint32_t& destination)
+        void setCompare(uint32_t (&compare)[2], uint16_t duty)
         {
-                return HAL_DMA_Start_IT(&dma, reinterpret_cast<uint32_t>(&source),
-                                                reinterpret_cast<uint32_t>(&destination), 1) == HAL_OK;
+                const uint32_t half_width = pwm_period * duty / 2000U;
+                compare[0] = pwm_period / 2U - half_width;
+                compare[1] = pwm_period / 2U + half_width;
+        }
+
+        /**
+         * @brief 将 CMP3 和 CMP4 写入同一桥臂的预装载寄存器。
+         *
+         */
+        bool armCompare(DMA_HandleTypeDef& dma, const uint32_t (&source)[2], volatile uint32_t& destination)
+        {
+                static_assert(offsetof(HRTIM_Timerx_TypeDef, CMP4xR) - offsetof(HRTIM_Timerx_TypeDef, CMP3xR) == sizeof(uint32_t), "Unexpected compare register layout");
+                return HAL_DMA_Start_IT(&dma, reinterpret_cast<uint32_t>(source), reinterpret_cast<uint32_t>(&destination), 2) == HAL_OK;
         }
 
         /**
@@ -178,8 +187,8 @@ namespace drivers
                         return false;
                 }
 
-                _dma_a.XferCpltCallback = onDmaComplete;
-                _dma_b.XferCpltCallback = onDmaComplete;
+                _dma_a.XferCpltCallback  = onDmaComplete;
+                _dma_b.XferCpltCallback  = onDmaComplete;
                 _dma_a.XferErrorCallback = onDmaError;
                 _dma_b.XferErrorCallback = onDmaError;
                 HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, board::PwmDmaPriority, 0);
@@ -198,28 +207,25 @@ namespace drivers
         {
                 static_assert(board::PwmHz == 4 * board::ControlHz, "Four PWM cycles per control window");
                 auto& master = HRTIM1->sMasterRegs;
-                const uint32_t phase = pwm_period / 64U;
-                master.MCMP1R = phase;
-                master.MCMP2R = pwm_period / 4U + phase;
-                master.MCMP3R = pwm_period / 2U + phase;
-                master.MCMP4R = 3U * pwm_period / 4U + phase;
+                master.MCMP3R = pwm_period / 8U;
+                HRTIM1->sTimerxRegs[a].CMP2xR = sample_a;
+                HRTIM1->sTimerxRegs[b].CMP2xR = sample_b;
+                HRTIM1->sTimerxRegs[b].CNTxR  = pwm_period / 2U;
                 HRTIM_ADCTriggerCfgTypeDef trigger{};
                 trigger.UpdateSource = HRTIM_ADCTRIGGERUPDATE_MASTER;
-                trigger.Trigger = HRTIM_ADCTRIGGEREVENT13_MASTER_CMP1 | HRTIM_ADCTRIGGEREVENT13_MASTER_CMP2 |
-                                          HRTIM_ADCTRIGGEREVENT13_MASTER_CMP3 | HRTIM_ADCTRIGGEREVENT13_MASTER_CMP4;
-                if (HAL_HRTIM_ADCTriggerConfig(&_timer, HRTIM_ADCTRIGGER_1, &trigger) != HAL_OK) {
+                trigger.Trigger = HRTIM_ADCTRIGGEREVENT6810_TIMERA_CMP2;
+                if (HAL_HRTIM_ADCTriggerConfig(&_timer, HRTIM_ADCTRIGGER_6, &trigger) != HAL_OK) {
                         return false;
                 }
-                trigger.Trigger = HRTIM_ADCTRIGGEREVENT13_MASTER_CMP4;
-                if (HAL_HRTIM_ADCTriggerConfig(&_timer, HRTIM_ADCTRIGGER_3, &trigger) != HAL_OK ||
-                        HAL_HRTIM_SoftwareUpdate(&_timer, HRTIM_TIMERUPDATE_MASTER) != HAL_OK) {
+                trigger.Trigger = HRTIM_ADCTRIGGEREVENT6810_TIMERB_CMP2;
+                if (HAL_HRTIM_ADCTriggerConfig(&_timer, HRTIM_ADCTRIGGER_8, &trigger) != HAL_OK || HAL_HRTIM_SoftwareUpdate(&_timer, HRTIM_TIMERUPDATE_MASTER | HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK) {
                         return false;
                 }
                 master.MICR = HRTIM_MICR_MREP;
                 master.MDIER |= HRTIM_MASTER_IT_MREP;
                 HAL_NVIC_SetPriority(HRTIM1_Master_IRQn, board::AdcDmaPriority, 0);
                 HAL_NVIC_EnableIRQ(HRTIM1_Master_IRQn);
-                return HAL_HRTIM_WaveformCountStart(&_timer, HRTIM_TIMERID_MASTER) == HAL_OK;
+                return HAL_HRTIM_WaveformCountStart(&_timer, counters) == HAL_OK;
         }
 
         /**
@@ -237,27 +243,23 @@ namespace drivers
                         return false;
                 }
 
-                // The sampling master continues independently of bridge enables.
-                HRTIM1->sTimerxRegs[a].CNTxR = 0;
-                HRTIM1->sTimerxRegs[b].CNTxR = 0;
-                HRTIM1->sTimerxRegs[a].CMP1xR = pwm_period * duty_a / 1000U;
-                HRTIM1->sTimerxRegs[b].CMP1xR = pwm_period * duty_b / 1000U;
+                setCompare(_compare_a, duty_a);
+                setCompare(_compare_b, duty_b);
+                HRTIM1->sTimerxRegs[a].CMP3xR = _compare_a[0];
+                HRTIM1->sTimerxRegs[a].CMP4xR = _compare_a[1];
+                HRTIM1->sTimerxRegs[b].CMP3xR = _compare_b[0];
+                HRTIM1->sTimerxRegs[b].CMP4xR = _compare_b[1];
                 if (HAL_HRTIM_SoftwareUpdate(&_timer, HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK ||
-                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA1,
-                                                         HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
-                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA2,
-                                                         HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
-                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB1,
-                                                         HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
-                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB2,
-                                                         HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK) {
+                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA1, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
+                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA2, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
+                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB1, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
+                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB2, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK) {
                         disableOutputs();
                         return false;
                 }
 
                 gpio::alternate(GPIOA, board::PwmPins, GPIO_AF13_HRTIM1, GPIO_PULLDOWN);
-                if (HAL_HRTIM_WaveformOutputStart(&_timer, outputs) != HAL_OK ||
-                        HAL_HRTIM_WaveformCountStart(&_timer, counters) != HAL_OK) {
+                if (HAL_HRTIM_WaveformOutputStart(&_timer, outputs) != HAL_OK) {
                         disableOutputs();
                         return false;
                 }
@@ -286,12 +288,11 @@ namespace drivers
 
                 HRTIM1->sCommonRegs.CR1 |= update_mask;
                 _await_latch = false;
-                _compare_a = pwm_period * duty_a / 1000U;
-                _compare_b = pwm_period * duty_b / 1000U;
+                setCompare(_compare_a, duty_a);
+                setCompare(_compare_b, duty_b);
                 _pending = 3U;
                 __DMB();
-                if (!armCompare(_dma_a, _compare_a, HRTIM1->sTimerxRegs[a].CMP1xR) ||
-                        !armCompare(_dma_b, _compare_b, HRTIM1->sTimerxRegs[b].CMP1xR)) {
+                if (!armCompare(_dma_a, _compare_a, HRTIM1->sTimerxRegs[a].CMP3xR) || !armCompare(_dma_b, _compare_b, HRTIM1->sTimerxRegs[b].CMP3xR)) {
                         disableOutputs();
                         return false;
                 }
@@ -342,7 +343,7 @@ namespace drivers
         }
 
         /**
-         * @brief Disable outputs before stopping timers and changing pin mode.
+         * @brief 关断门极输出并取消 PWM 更新，保留 ADC 触发计数器。
          *
          */
         void hrtim::stopHardware()
@@ -350,7 +351,6 @@ namespace drivers
                 _running = false;
                 if (__HAL_RCC_HRTIM1_IS_CLK_ENABLED()) {
                         HRTIM1->sCommonRegs.ODISR = outputs;
-                        HRTIM1->sMasterRegs.MCR &= ~(HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B);
                         cancelUpdate();
                 }
                 if (__HAL_RCC_GPIOA_IS_CLK_ENABLED()) {

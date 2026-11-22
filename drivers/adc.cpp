@@ -24,19 +24,18 @@ namespace
                 }
                 __HAL_LINKDMA(&adc, DMA_Handle, dma);
 
-                adc.Instance = instance;
-                adc.Init.ClockPrescaler = ADC_CLOCK_SYNC_PCLK_DIV4;
-                adc.Init.Resolution = ADC_RESOLUTION_12B;
-                adc.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-                adc.Init.GainCompensation = 0;
-                adc.Init.ScanConvMode = ADC_SCAN_ENABLE;
-                adc.Init.EOCSelection = ADC_EOC_SEQ_CONV;
-                adc.Init.NbrOfConversion = count;
-                adc.Init.ExternalTrigConv = instance == ADC1 ?
-                        ADC_EXTERNALTRIG_HRTIM_TRG1 : ADC_EXTERNALTRIG_HRTIM_TRG3;
-                adc.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+                adc.Instance                   = instance;
+                adc.Init.ClockPrescaler        = ADC_CLOCK_SYNC_PCLK_DIV4;
+                adc.Init.Resolution            = ADC_RESOLUTION_12B;
+                adc.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
+                adc.Init.GainCompensation      = 0;
+                adc.Init.ScanConvMode          = ADC_SCAN_ENABLE;
+                adc.Init.EOCSelection          = ADC_EOC_SEQ_CONV;
+                adc.Init.NbrOfConversion       = count;
+                adc.Init.ExternalTrigConv      = instance == ADC1 ? ADC_EXTERNALTRIG_HRTIM_TRG6 : ADC_EXTERNALTRIG_HRTIM_TRG8;
+                adc.Init.ExternalTrigConvEdge  = ADC_EXTERNALTRIGCONVEDGE_RISING;
                 adc.Init.DMAContinuousRequests = ENABLE;
-                adc.Init.Overrun = ADC_OVR_DATA_PRESERVED;
+                adc.Init.Overrun               = ADC_OVR_DATA_PRESERVED;
                 if (HAL_ADC_Init(&adc) != HAL_OK) {
                         return false;
                 }
@@ -86,10 +85,8 @@ namespace drivers
 
                 if (!configureAdc(_adc1, _dma1, ADC1, DMA1_Channel3, DMA_REQUEST_ADC1, adc1_channels, 2) ||
                         !configureAdc(_adc2, _dma2, ADC2, DMA1_Channel4, DMA_REQUEST_ADC2, adc2_channels, 4) ||
-                        HAL_ADC_Start_DMA(&_adc1, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(_raw1)),
-                                                      sizeof(_raw1) / sizeof(_raw1[0])) != HAL_OK ||
-                        HAL_ADC_Start_DMA(&_adc2, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(_raw2)),
-                                                      sizeof(_raw2) / sizeof(_raw2[0])) != HAL_OK) {
+                        HAL_ADC_Start_DMA(&_adc1, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(_raw1)), sizeof(_raw1) / sizeof(_raw1[0])) != HAL_OK ||
+                        HAL_ADC_Start_DMA(&_adc2, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(_raw2)), sizeof(_raw2) / sizeof(_raw2[0])) != HAL_OK) {
                         fail();
                         return false;
                 }
@@ -146,10 +143,10 @@ namespace drivers
                 if (!_running) {
                         return false;
                 }
-                const unsigned half = (sequence - 1U) & 1U;
+                const unsigned half     = (sequence - 1U) & 1U;
                 const uint32_t expected = half == 0 ? DMA_ISR_HTIF3 | DMA_ISR_HTIF4 : DMA_ISR_TCIF3 | DMA_ISR_TCIF4;
-                constexpr uint32_t flags = DMA_ISR_HTIF3 | DMA_ISR_HTIF4 | DMA_ISR_TCIF3 | DMA_ISR_TCIF4 |
-                                                   DMA_ISR_TEIF3 | DMA_ISR_TEIF4;
+                constexpr uint32_t flags = DMA_ISR_HTIF3 | DMA_ISR_HTIF4 | DMA_ISR_TCIF3 |
+                                           DMA_ISR_TCIF4 | DMA_ISR_TEIF3 | DMA_ISR_TEIF4;
                 if ((DMA1->ISR & flags) != expected || ((ADC1->ISR | ADC2->ISR) & ADC_ISR_OVR) != 0) {
                         fail();
                         return false;
@@ -157,16 +154,16 @@ namespace drivers
                 DMA1->IFCR = expected;
                 __DMB();
                 const volatile uint16_t* first  = &_raw1[8 * half];
-                const volatile uint16_t* second = &_raw2[4 * half];
+                const volatile uint16_t* second = &_raw2[16 * half + 12];
                 uint32_t current = 0;
                 uint32_t voltage = 0;
                 for (unsigned i = 0; i < 4; ++i) {
                         current += first[2 * i];
                         voltage += first[2 * i + 1];
                 }
-                result.last = {second[1], second[0], second[2], first[6], first[7], second[3], sequence};
+                result.last                 = {second[1], second[0], second[2], first[6], first[7], second[3], sequence};
                 result.mean_chassis_current = static_cast<uint16_t>((current + 2) / 4);
-                result.mean_output_voltage = static_cast<uint16_t>((voltage + 2) / 4);
+                result.mean_output_voltage  = static_cast<uint16_t>((voltage + 2) / 4);
                 return _running;
         }
 
