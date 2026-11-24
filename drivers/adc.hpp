@@ -1,6 +1,6 @@
 /**
  * @file adc.hpp
- * @brief Time-aligned dual ADC acquisition through circular DMA.
+ * @brief 通过循环 DMA 读取按 PWM 相位触发的双 ADC 采样。
  */
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace drivers
 {
         /**
-         * @brief Six raw ADC readings belonging to one control window.
+         * @brief 同一控制窗口内六个通道的原始采样值。
          *
          */
         struct adc_sample
@@ -21,11 +21,15 @@ namespace drivers
                         uint16_t chassis_current;
                         uint16_t output_voltage;
                         uint16_t output_current;
-                        uint32_t sequence;  ///< control window number, wrapping modulo 2^32.
+                        /**
+                         * @brief 控制窗口序号，按 32 位无符号整数自然回绕。
+                         *
+                         */
+                        uint32_t sequence;
         };
 
         /**
-         * @brief ADC2 and the last ADC1 reading, plus rounded ADC1 channel means.
+         * @brief 窗口内最后一组采样值与四舍五入后的 ADC1 通道均值。
          *
          */
         struct control_sample
@@ -37,7 +41,7 @@ namespace drivers
         };
 
         /**
-         * @brief Common trigger, paired DMA half-buffers and latest-complete-block mailbox.
+         * @brief 管理双 ADC 转换、成对的 DMA 半区和窗口读取。
          *
          */
         class adc
@@ -58,8 +62,8 @@ namespace drivers
                         ADC_HandleTypeDef _adc2{};
                         DMA_HandleTypeDef _dma1{};
                         DMA_HandleTypeDef _dma2{};
-                        alignas(4) volatile uint16_t _raw1[2 * 4 * 2]{};
-                        alignas(4) volatile uint16_t _raw2[2 * 4 * 4]{};
+                        alignas(4) volatile uint16_t _raw1[2][board::adc_timing::scans_per_window][board::adc_timing::adc1_channels]{};
+                        alignas(4) volatile uint16_t _raw2[2][board::adc_timing::scans_per_window][board::adc_timing::adc2_channels]{};
                         volatile uint32_t _errors = 0;
                         volatile bool _running = false;
         };

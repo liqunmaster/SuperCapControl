@@ -1,6 +1,6 @@
 /**
  * @file hrtim.hpp
- * @brief HRTIM two-bridge bench PWM with paired DMA compare updates.
+ * @brief HRTIM 双桥 PWM 接口，支持成对更新比较值。
  */
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace drivers
 {
         /**
-         * @brief HRTIM1 waveform owner. Power outputs require an explicit start.
+         * @brief 管理 HRTIM1 波形，显式启动后才使能功率输出。
          *
          */
         class hrtim
@@ -27,19 +27,15 @@ namespace drivers
                         bool faulted() const;
                         static void disableOutputs();
 
-                        void handleDmaIrq(bool second);
-                        void complete(bool second);
 
                 private:
+                        void releaseCompareUpdate();
                         void cancelUpdate();
                         void stopHardware();
 
                         HRTIM_HandleTypeDef _timer{};
-                        DMA_HandleTypeDef _dma_a{};
-                        DMA_HandleTypeDef _dma_b{};
                         uint32_t _compare_a[2]{};
                         uint32_t _compare_b[2]{};
-                        unsigned _pending = 0;
                         bool _await_latch = false;
                         bool _ready = false;
                         volatile bool _running = false;

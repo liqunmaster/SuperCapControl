@@ -1,6 +1,6 @@
 /**
  * @file gpio.cpp
- * @brief HAL GPIO pin configuration and access.
+ * @brief GPIO 引脚配置与读写。
  */
 #include "gpio.hpp"
 
@@ -9,7 +9,7 @@
 namespace
 {
         /**
-         * @brief Apply a GPIO configuration to one or more pins on an enabled port.
+         * @brief 配置已开启端口时钟的一个或多个 GPIO 引脚。
          *
          */
         void configure(GPIO_TypeDef* port, uint16_t pins, uint32_t mode, uint32_t pull, uint32_t af)
@@ -27,7 +27,7 @@ namespace
 namespace drivers
 {
         /**
-         * @brief Set an initial pin level before selecting push-pull output mode.
+         * @brief 先设置初始电平，再切换至推挽输出模式。
          *
          */
         void gpio::output(GPIO_TypeDef* port, uint16_t pins, bool initial)
@@ -37,7 +37,7 @@ namespace drivers
         }
 
         /**
-         * @brief Select analog mode with no internal pull.
+         * @brief 选择模拟输入模式，关闭内部上下拉。
          *
          */
         void gpio::analog(GPIO_TypeDef* port, uint16_t pins)
@@ -46,7 +46,7 @@ namespace drivers
         }
 
         /**
-         * @brief Select an alternate function for the given pins.
+         * @brief 为指定引脚选择复用功能。
          *
          */
         void gpio::alternate(GPIO_TypeDef* port, uint16_t pins, uint32_t af, uint32_t pull)
@@ -55,7 +55,7 @@ namespace drivers
         }
 
         /**
-         * @brief Set or clear all pins in the mask using the atomic GPIO set/reset register.
+         * @brief 通过 GPIO 置位复位寄存器一次更新掩码选中的引脚。
          *
          */
         void gpio::write(GPIO_TypeDef* port, uint16_t pins, bool high)
@@ -64,7 +64,7 @@ namespace drivers
         }
 
         /**
-         * @brief Return true when at least one pin in the mask reads high.
+         * @brief 掩码中至少有一个引脚读为高电平时返回 true。
          *
          */
         bool gpio::read(GPIO_TypeDef* port, uint16_t pins)
@@ -73,7 +73,7 @@ namespace drivers
         }
 
         /**
-         * @brief Toggle selected output pins atomically with respect to local interrupts.
+         * @brief 在本地中断保护下翻转指定输出引脚。
          *
          */
         void gpio::toggle(GPIO_TypeDef* port, uint16_t pins)

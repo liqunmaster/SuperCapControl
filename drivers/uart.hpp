@@ -1,6 +1,6 @@
 /**
  * @file uart.hpp
- * @brief USART3 DMA transmit and circular DMA receive.
+ * @brief USART3 的 DMA 发送与循环 DMA 接收接口。
  */
 #pragma once
 
@@ -11,7 +11,7 @@
 namespace drivers
 {
         /**
-         * @brief Bounded nonblocking USART3 driver with one task-side writer and reader.
+         * @brief 使用定长缓冲区的非阻塞 USART3 驱动，前台负责读写。
          *
          */
         class uart

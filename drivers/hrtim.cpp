@@ -1,6 +1,6 @@
 /**
  * @file hrtim.cpp
- * @brief HRTIM1 PWM and paired memory-to-compare DMA transactions.
+ * @brief HRTIM1 双桥 PWM 输出与比较寄存器的成对预装载更新。
  */
 #include "hrtim.hpp"
 
@@ -8,8 +8,7 @@
 
 namespace
 {
-        constexpr uint64_t timer_hz        = static_cast<uint64_t>(board::CoreHz) * 32U;
-        constexpr uint32_t pwm_period      = static_cast<uint32_t>(timer_hz / board::PwmHz);
+        constexpr uint32_t pwm_period      = board::pwm_timing::period_ticks;
         constexpr uint32_t dead_time_ticks = static_cast<uint32_t>((static_cast<uint64_t>(board::PwmDeadTimeNs) * 8U * board::CoreHz + 999999999U) / 1000000000U);
         constexpr uint32_t outputs         = HRTIM_OUTPUT_TA1 | HRTIM_OUTPUT_TA2 | HRTIM_OUTPUT_TB1 | HRTIM_OUTPUT_TB2;
         constexpr uint32_t counters        = HRTIM_TIMERID_MASTER | HRTIM_TIMERID_TIMER_A | HRTIM_TIMERID_TIMER_B;
@@ -17,14 +16,11 @@ namespace
         constexpr uint32_t a               = HRTIM_TIMERINDEX_TIMER_A;
         constexpr uint32_t b               = HRTIM_TIMERINDEX_TIMER_B;
 
-        constexpr uint32_t sample_a = pwm_period / 2U - 3040U;
-        constexpr uint32_t sample_b = pwm_period / 2U + 128U;
-
-        static_assert(timer_hz % board::PwmHz == 0 && pwm_period <= UINT16_MAX, "Invalid HRTIM period");
+        static_assert(pwm_period >= 96U && pwm_period <= 0xFFDFU, "Invalid HRTIM MUL32 period");
         static_assert(dead_time_ticks <= 0x1FF && dead_time_ticks * 8U < pwm_period / 20U, "Invalid dead time");
 
         /**
-         * @brief Validate a run duty in per mille.
+         * @brief 检查上管占空比是否位于允许的千分比范围内。
          *
          */
         bool validDuty(uint16_t duty)
@@ -33,18 +29,7 @@ namespace
         }
 
         /**
-         * @brief 配置依次写入两个比较寄存器的 DMA 通道。
-         *
-         */
-        bool configureDma(DMA_HandleTypeDef& dma, DMA_Channel_TypeDef* channel, uint32_t request)
-        {
-                dma.Instance = channel;
-                dma.Init     = {request, DMA_MEMORY_TO_PERIPH, DMA_PINC_ENABLE, DMA_MINC_ENABLE, DMA_PDATAALIGN_WORD, DMA_MDATAALIGN_WORD, DMA_NORMAL, DMA_PRIORITY_VERY_HIGH};
-                return HAL_DMA_Init(&dma) == HAL_OK;
-        }
-
-        /**
-         * @brief Set PWM edges and inactive levels for one output.
+         * @brief 配置一路 PWM 的置位、复位事件及空闲电平。
          *
          */
         bool configureOutput(HRTIM_HandleTypeDef& timer, uint32_t index, uint32_t output, bool high_side)
@@ -60,7 +45,7 @@ namespace
         }
 
         /**
-         * @brief Configure both timing units to latch at the same master period boundary.
+         * @brief 配置两桥计数器，使比较预装载值在同一主周期边界生效。
          *
          */
         bool configureTimer(HRTIM_HandleTypeDef& timer, uint32_t index)
@@ -81,7 +66,7 @@ namespace
                 }
 
                 config.UpdateTrigger     = HRTIM_TIMUPDATETRIGGER_MASTER;
-                config.ResetTrigger      = index == a ? HRTIM_TIMRESETTRIGGER_MASTER_PER : HRTIM_TIMRESETTRIGGER_MASTER_CMP3;
+                config.ResetTrigger      = HRTIM_TIMRESETTRIGGER_MASTER_PER;
                 config.DeadTimeInsertion = dead_time_ticks == 0 ? HRTIM_TIMDEADTIMEINSERTION_DISABLED : HRTIM_TIMDEADTIMEINSERTION_ENABLED;
                 HRTIM_DeadTimeCfgTypeDef dead_time{};
                 dead_time.Prescaler    = HRTIM_TIMDEADTIME_PRESCALERRATIO_MUL8;
@@ -101,39 +86,13 @@ namespace
                 compare[1] = pwm_period / 2U + half_width;
         }
 
-        /**
-         * @brief 将 CMP3 和 CMP4 写入同一桥臂的预装载寄存器。
-         *
-         */
-        bool armCompare(DMA_HandleTypeDef& dma, const uint32_t (&source)[2], volatile uint32_t& destination)
-        {
-                static_assert(offsetof(HRTIM_Timerx_TypeDef, CMP4xR) - offsetof(HRTIM_Timerx_TypeDef, CMP3xR) == sizeof(uint32_t), "Unexpected compare register layout");
-                return HAL_DMA_Start_IT(&dma, reinterpret_cast<uint32_t>(source), reinterpret_cast<uint32_t>(&destination), 2) == HAL_OK;
-        }
 
-        /**
-         * @brief Route DMA completion to the bridge that owns the channel.
-         *
-         */
-        void onDmaComplete(DMA_HandleTypeDef* dma)
-        {
-                drivers::hrtim::instance().complete(dma->Instance == DMA1_Channel2);
-        }
-
-        /**
-         * @brief Latch all PWM outputs off after an error on either bridge DMA.
-         *
-         */
-        void onDmaError(DMA_HandleTypeDef*)
-        {
-                drivers::hrtim::disableOutputs();
-        }
 }
 
 namespace drivers
 {
         /**
-         * @brief Acknowledge a pending Master repetition event.
+         * @brief 检查并清除主定时器重复事件标志。
          *
          */
         bool hrtim::takeControlTick()
@@ -146,7 +105,7 @@ namespace drivers
         }
 
         /**
-         * @brief Check whether the next hardware control tick has arrived.
+         * @brief 检查下一次主定时器控制节拍是否已经到达。
          *
          */
         bool hrtim::controlTickPending()
@@ -155,7 +114,7 @@ namespace drivers
         }
 
         /**
-         * @brief Return the sole owner of HRTIM1 and DMA1 channels 1/2.
+         * @brief 获取管理 HRTIM1 的驱动实例。
          *
          */
         hrtim& hrtim::instance()
@@ -165,7 +124,7 @@ namespace drivers
         }
 
         /**
-         * @brief Configure the bench waveform and DMA while all gate-command pins are low.
+         * @brief 保持门极命令为低，初始化波形发生器。
          *
          */
         bool hrtim::init()
@@ -180,37 +139,38 @@ namespace drivers
                         !configureTimer(_timer, b) || !configureOutput(_timer, a, HRTIM_OUTPUT_TA1, true) ||
                         !configureOutput(_timer, a, HRTIM_OUTPUT_TA2, false) ||
                         !configureOutput(_timer, b, HRTIM_OUTPUT_TB1, false) ||
-                        !configureOutput(_timer, b, HRTIM_OUTPUT_TB2, true) ||
-                        !configureDma(_dma_a, DMA1_Channel1, DMA_REQUEST_HRTIM1_A) ||
-                        !configureDma(_dma_b, DMA1_Channel2, DMA_REQUEST_HRTIM1_B)) {
+                        !configureOutput(_timer, b, HRTIM_OUTPUT_TB2, true) ) {
                         disableOutputs();
                         return false;
                 }
 
-                _dma_a.XferCpltCallback  = onDmaComplete;
-                _dma_b.XferCpltCallback  = onDmaComplete;
-                _dma_a.XferErrorCallback = onDmaError;
-                _dma_b.XferErrorCallback = onDmaError;
-                HAL_NVIC_SetPriority(DMA1_Channel1_IRQn, board::PwmDmaPriority, 0);
-                HAL_NVIC_SetPriority(DMA1_Channel2_IRQn, board::PwmDmaPriority, 0);
-                HAL_NVIC_EnableIRQ(DMA1_Channel1_IRQn);
-                HAL_NVIC_EnableIRQ(DMA1_Channel2_IRQn);
                 _ready = true;
                 return true;
         }
 
         /**
-         * @brief Start the 32 us sampling window with both bridge outputs disabled.
+         * @brief 在两桥输出关闭时启动每四个 PWM 周期的采样窗口。
          *
          */
         bool hrtim::startTimebase()
         {
-                static_assert(board::PwmHz == 4 * board::ControlHz, "Four PWM cycles per control window");
+                using timing = board::adc_timing;
+                constexpr uint32_t ticks_per_half_clock = board::pwm_timing::bridge_multiplier * timing::clock_divider / 2U;
+                constexpr uint32_t acquisition_ticks    = timing::acquisition_halves * ticks_per_half_clock;
+                constexpr uint32_t rank_ticks           = acquisition_ticks + timing::conversion_halves * ticks_per_half_clock;
+                constexpr uint32_t adc2_lead            = timing::capacitor_current_index * rank_ticks;
+                constexpr uint32_t centered_start      = (pwm_period - acquisition_ticks) / 2U;
+                // ADC2 先采两个通道，两路电流采样一起后移，给周期起点留出触发余量。
+                constexpr uint32_t earliest_adc2_trigger = 8U * board::pwm_timing::bridge_multiplier;
+                constexpr uint32_t earliest_current_start = adc2_lead + earliest_adc2_trigger;
+                constexpr uint32_t current_sample_start = centered_start < earliest_current_start ? earliest_current_start : centered_start;
+                constexpr uint32_t adc2_trigger = current_sample_start - adc2_lead;
+                static_assert(current_sample_start + timing::adc1_channels * rank_ticks < pwm_period, "ADC1 scan exceeds one PWM cycle");
+                static_assert(adc2_trigger + timing::adc2_channels * rank_ticks < pwm_period, "ADC2 scan exceeds one PWM cycle");
+
                 auto& master = HRTIM1->sMasterRegs;
-                master.MCMP3R = pwm_period / 8U;
-                HRTIM1->sTimerxRegs[a].CMP2xR = sample_a;
-                HRTIM1->sTimerxRegs[b].CMP2xR = sample_b;
-                HRTIM1->sTimerxRegs[b].CNTxR  = pwm_period / 2U;
+                HRTIM1->sTimerxRegs[a].CMP2xR = current_sample_start;
+                HRTIM1->sTimerxRegs[b].CMP2xR = adc2_trigger;
                 HRTIM_ADCTriggerCfgTypeDef trigger{};
                 trigger.UpdateSource = HRTIM_ADCTRIGGERUPDATE_MASTER;
                 trigger.Trigger = HRTIM_ADCTRIGGEREVENT6810_TIMERA_CMP2;
@@ -229,11 +189,11 @@ namespace drivers
         }
 
         /**
-         * @brief Explicitly start both bridges from known initial compare values.
-         * @param duty_a Bridge A high-side duty, in per mille from 50 to 950.
-         * @param duty_b Bridge B high-side duty, in per mille from 50 to 950.
-         * @return False for invalid duties, an uninitialized/faulted driver or an active waveform.
-         * @pre Call from the PWM owning task. Verify isolated hardware before enabling outputs.
+         * @brief 在公共更新边界启用两桥的初始占空比。
+         * @param duty_a A 桥上管占空比，单位为千分比，范围为 50 至 950。
+         * @param duty_b B 桥上管占空比，单位为千分比，范围为 50 至 950。
+         * @return 成功返回 true。参数无效、驱动未就绪、已启动或故障时返回 false。
+         * @pre 由 PWM 控制端调用，使能前须在隔离功率级条件下核对波形。
          *
          */
         bool hrtim::start(uint16_t duty_a, uint16_t duty_b)
@@ -243,16 +203,17 @@ namespace drivers
                         return false;
                 }
 
-                setCompare(_compare_a, duty_a);
-                setCompare(_compare_b, duty_b);
-                HRTIM1->sTimerxRegs[a].CMP3xR = _compare_a[0];
-                HRTIM1->sTimerxRegs[a].CMP4xR = _compare_a[1];
-                HRTIM1->sTimerxRegs[b].CMP3xR = _compare_b[0];
-                HRTIM1->sTimerxRegs[b].CMP4xR = _compare_b[1];
+                // 屏蔽本周期的比较边沿，先将两个开关节点置于低侧续流状态。
+                constexpr uint32_t parked_compare = pwm_period + 32U;
+                static_assert(parked_compare <= 0xFFDFU, "Parked compare exceeds the HRTIM MUL32 range");
+                HRTIM1->sTimerxRegs[a].CMP3xR = parked_compare;
+                HRTIM1->sTimerxRegs[a].CMP4xR = parked_compare;
+                HRTIM1->sTimerxRegs[b].CMP3xR = parked_compare;
+                HRTIM1->sTimerxRegs[b].CMP4xR = parked_compare;
                 if (HAL_HRTIM_SoftwareUpdate(&_timer, HRTIM_TIMERUPDATE_A | HRTIM_TIMERUPDATE_B) != HAL_OK ||
                         HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA1, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
-                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA2, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
-                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB1, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK ||
+                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, a, HRTIM_OUTPUT_TA2, HRTIM_OUTPUTLEVEL_ACTIVE) != HAL_OK ||
+                        HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB1, HRTIM_OUTPUTLEVEL_ACTIVE) != HAL_OK ||
                         HAL_HRTIM_WaveformSetOutputLevel(&_timer, b, HRTIM_OUTPUT_TB2, HRTIM_OUTPUTLEVEL_INACTIVE) != HAL_OK) {
                         disableOutputs();
                         return false;
@@ -263,16 +224,25 @@ namespace drivers
                         disableOutputs();
                         return false;
                 }
+                // 四个边沿在同一个主周期边界生效，避免启动半个脉冲。
+                HRTIM1->sCommonRegs.CR1 |= update_mask;
+                setCompare(_compare_a, duty_a);
+                setCompare(_compare_b, duty_b);
+                HRTIM1->sTimerxRegs[a].CMP3xR = _compare_a[0];
+                HRTIM1->sTimerxRegs[a].CMP4xR = _compare_a[1];
+                HRTIM1->sTimerxRegs[b].CMP3xR = _compare_b[0];
+                HRTIM1->sTimerxRegs[b].CMP4xR = _compare_b[1];
+                releaseCompareUpdate();
                 _running = true;
                 return true;
         }
 
         /**
-         * @brief Queue one paired duty update, transferred by DMA on hardware counter reset events.
-         * @param duty_a Bridge A high-side duty, in per mille from 50 to 950.
-         * @param duty_b Bridge B high-side duty, in per mille from 50 to 950.
-         * @return True if both DMA channels were armed. A busy or disabled driver returns false.
-         * @pre Call from the PWM owning task.
+         * @brief 提交两桥的新占空比，在公共更新边界生效。
+         * @param duty_a A 桥上管占空比，单位为千分比，范围为 50 至 950。
+         * @param duty_b B 桥上管占空比，单位为千分比，范围为 50 至 950。
+         * @return 已写入两桥预装载时返回 true。参数无效、忙或输出关闭时返回 false。
+         * @pre 由 PWM 控制端调用。
          *
          */
         bool hrtim::update(uint16_t duty_a, uint16_t duty_b)
@@ -282,7 +252,7 @@ namespace drivers
                 }
 
                 board::critical_section lock;
-                if (!_running || _pending != 0 || (_await_latch && (HRTIM1->sMasterRegs.MISR & HRTIM_MISR_MUPD) == 0)) {
+                if (!_running || (_await_latch && (HRTIM1->sMasterRegs.MISR & HRTIM_MISR_MUPD) == 0)) {
                         return false;
                 }
 
@@ -290,55 +260,33 @@ namespace drivers
                 _await_latch = false;
                 setCompare(_compare_a, duty_a);
                 setCompare(_compare_b, duty_b);
-                _pending = 3U;
-                __DMB();
-                if (!armCompare(_dma_a, _compare_a, HRTIM1->sTimerxRegs[a].CMP3xR) || !armCompare(_dma_b, _compare_b, HRTIM1->sTimerxRegs[b].CMP3xR)) {
-                        disableOutputs();
-                        return false;
-                }
-
-                HRTIM1->sTimerxRegs[a].TIMxDIER |= HRTIM_TIM_DMA_RST;
-                HRTIM1->sTimerxRegs[b].TIMxDIER |= HRTIM_TIM_DMA_RST;
+                HRTIM1->sTimerxRegs[a].CMP3xR = _compare_a[0];
+                HRTIM1->sTimerxRegs[a].CMP4xR = _compare_a[1];
+                HRTIM1->sTimerxRegs[b].CMP3xR = _compare_b[0];
+                HRTIM1->sTimerxRegs[b].CMP4xR = _compare_b[1];
+                releaseCompareUpdate();
                 return true;
         }
 
         /**
-         * @brief Release both preload gates only once both DMA writes have completed.
+         * @brief 同时开放两桥预装载，等待公共更新事件后再接受下一组占空比。
          *
          */
-        void hrtim::complete(bool second)
+        void hrtim::releaseCompareUpdate()
         {
-                board::critical_section lock;
-                if (!_running) {
-                        return;
-                }
-
-                HRTIM1->sTimerxRegs[second ? b : a].TIMxDIER &= ~HRTIM_TIM_DMA_RST;
-                _pending &= ~(second ? 2U : 1U);
-                if (_pending == 0) {
-                        __DMB();
-                        HRTIM1->sCommonRegs.CR1 &= ~update_mask;
-                        HRTIM1->sMasterRegs.MICR = HRTIM_MASTER_FLAG_MUPD;
-                        _await_latch = true;
-                }
+                __DMB();
+                HRTIM1->sCommonRegs.CR1 &= ~update_mask;
+                HRTIM1->sMasterRegs.MICR = HRTIM_MASTER_FLAG_MUPD;
+                _await_latch = true;
         }
 
         /**
-         * @brief Cancel pending requests and release DMA state during shutdown.
+         * @brief 关闭输出时取消待处理的更新。
          *
          */
         void hrtim::cancelUpdate()
         {
-                HRTIM1->sTimerxRegs[a].TIMxDIER &= ~HRTIM_TIM_DMA_RST;
-                HRTIM1->sTimerxRegs[b].TIMxDIER &= ~HRTIM_TIM_DMA_RST;
-                if (_dma_a.State == HAL_DMA_STATE_BUSY) {
-                        HAL_DMA_Abort(&_dma_a);
-                }
-                if (_dma_b.State == HAL_DMA_STATE_BUSY) {
-                        HAL_DMA_Abort(&_dma_b);
-                }
                 HRTIM1->sCommonRegs.CR1 &= ~update_mask;
-                _pending = 0;
                 _await_latch = false;
         }
 
@@ -359,7 +307,7 @@ namespace drivers
         }
 
         /**
-         * @brief Stop the waveform and permit a later explicit start.
+         * @brief 停止 PWM，允许随后显式重启。
          *
          */
         void hrtim::stop()
@@ -369,7 +317,7 @@ namespace drivers
         }
 
         /**
-         * @brief Latch shutdown; subsequent start calls fail until a reset.
+         * @brief 锁存故障并关断，复位后才能重新启动。
          *
          */
         void hrtim::disableOutputs()
@@ -381,7 +329,7 @@ namespace drivers
         }
 
         /**
-         * @brief Return whether the waveform has been explicitly started.
+         * @brief 返回 PWM 输出是否已启动。
          *
          */
         bool hrtim::running() const
@@ -390,7 +338,7 @@ namespace drivers
         }
 
         /**
-         * @brief Return the latched fault state.
+         * @brief 返回故障是否已锁存。
          *
          */
         bool hrtim::faulted() const
@@ -398,39 +346,4 @@ namespace drivers
                 return _fault;
         }
 
-        /**
-         * @brief Dispatch the bridge DMA IRQ and its completion/error callbacks.
-         *
-         */
-        void hrtim::handleDmaIrq(bool second)
-        {
-                const uint32_t error = second ? DMA_ISR_TEIF2 : DMA_ISR_TEIF1;
-                if (!_running) {
-                        DMA1->IFCR = second ? DMA_IFCR_CGIF2 : DMA_IFCR_CGIF1;
-                        return;
-                }
-                if ((DMA1->ISR & error) != 0) {
-                        disableOutputs();
-                        return;
-                }
-                HAL_DMA_IRQHandler(second ? &_dma_b : &_dma_a);
-        }
-}
-
-/**
- * @brief Dispatch the HRTIM timer A compare DMA interrupt.
- *
- */
-extern "C" void DMA1_Channel1_IRQHandler()
-{
-        drivers::hrtim::instance().handleDmaIrq(false);
-}
-
-/**
- * @brief Dispatch the HRTIM timer B compare DMA interrupt.
- *
- */
-extern "C" void DMA1_Channel2_IRQHandler()
-{
-        drivers::hrtim::instance().handleDmaIrq(true);
 }

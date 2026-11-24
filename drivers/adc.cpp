@@ -1,6 +1,6 @@
 /**
  * @file adc.cpp
- * @brief TIM6-triggered dual ADC with HAL ADC/DMA and a complete-block mailbox.
+ * @brief 由 HRTIM 触发双 ADC 扫描，使用循环 DMA 接收结果。
  */
 #include "adc.hpp"
 
@@ -8,11 +8,8 @@
 
 namespace
 {
-        constexpr uint32_t adc1_channels[] = {ADC_CHANNEL_15, ADC_CHANNEL_12};
-        constexpr uint32_t adc2_channels[] = {ADC_CHANNEL_3, ADC_CHANNEL_13, ADC_CHANNEL_4, ADC_CHANNEL_12};
-        constexpr uint32_t ranks[] = {ADC_REGULAR_RANK_1, ADC_REGULAR_RANK_2, ADC_REGULAR_RANK_3, ADC_REGULAR_RANK_4};
         /**
-         * @brief Configure a regular sequence and the circular, half-word DMA channel it owns.
+         * @brief 配置 ADC 规则转换序列和按半字传输的循环 DMA 通道。
          *
          */
         bool configureAdc(ADC_HandleTypeDef& adc, DMA_HandleTypeDef& dma, ADC_TypeDef* instance, DMA_Channel_TypeDef* channel, uint32_t request, const uint32_t* channels, unsigned count)
@@ -25,7 +22,7 @@ namespace
                 __HAL_LINKDMA(&adc, DMA_Handle, dma);
 
                 adc.Instance                   = instance;
-                adc.Init.ClockPrescaler        = ADC_CLOCK_SYNC_PCLK_DIV4;
+                adc.Init.ClockPrescaler        = board::adc_timing::prescaler;
                 adc.Init.Resolution            = ADC_RESOLUTION_12B;
                 adc.Init.DataAlign             = ADC_DATAALIGN_RIGHT;
                 adc.Init.GainCompensation      = 0;
@@ -40,11 +37,12 @@ namespace
                         return false;
                 }
 
+                constexpr uint32_t ranks[] = {ADC_REGULAR_RANK_1, ADC_REGULAR_RANK_2, ADC_REGULAR_RANK_3, ADC_REGULAR_RANK_4};
                 for (unsigned index = 0; index < count; ++index) {
                         ADC_ChannelConfTypeDef config{};
                         config.Channel      = channels[index];
                         config.Rank         = ranks[index];
-                        config.SamplingTime = ADC_SAMPLETIME_47CYCLES_5;
+                        config.SamplingTime = board::adc_timing::sample_time;
                         config.SingleDiff   = ADC_SINGLE_ENDED;
                         config.OffsetNumber = ADC_OFFSET_NONE;
                         if (HAL_ADC_ConfigChannel(&adc, &config) != HAL_OK) {
@@ -58,7 +56,7 @@ namespace
 namespace drivers
 {
         /**
-         * @brief Return the sole owner of ADC1/2 and DMA1 channels 3/4.
+         * @brief 获取管理 ADC1、ADC2 和 DMA1 通道 3、4 的驱动实例。
          *
          */
         adc& adc::instance()
@@ -68,7 +66,7 @@ namespace drivers
         }
 
         /**
-         * @brief Arm both ADC DMA channels before starting their common hardware trigger.
+         * @brief 启动 HRTIM 时基前，使能两路 ADC 及对应的 DMA。
          *
          */
         bool adc::init(void (*on_fault)())
@@ -81,12 +79,16 @@ namespace drivers
                 gpio::analog(GPIOB, GPIO_PIN_0 | GPIO_PIN_1 | GPIO_PIN_2);
                 gpio::analog(GPIOA, GPIO_PIN_5 | GPIO_PIN_6 | GPIO_PIN_7);
 
-
-
-                if (!configureAdc(_adc1, _dma1, ADC1, DMA1_Channel3, DMA_REQUEST_ADC1, adc1_channels, 2) ||
-                        !configureAdc(_adc2, _dma2, ADC2, DMA1_Channel4, DMA_REQUEST_ADC2, adc2_channels, 4) ||
-                        HAL_ADC_Start_DMA(&_adc1, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(_raw1)), sizeof(_raw1) / sizeof(_raw1[0])) != HAL_OK ||
-                        HAL_ADC_Start_DMA(&_adc2, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(_raw2)), sizeof(_raw2) / sizeof(_raw2[0])) != HAL_OK) {
+                using timing = board::adc_timing;
+                constexpr uint32_t adc1_channels[] = {ADC_CHANNEL_15, ADC_CHANNEL_12};
+                constexpr uint32_t adc2_channels[] = {ADC_CHANNEL_4, ADC_CHANNEL_13, ADC_CHANNEL_3, ADC_CHANNEL_12};
+                static_assert(sizeof(adc1_channels) / sizeof(adc1_channels[0]) == timing::adc1_channels, "ADC1 scan length mismatch");
+                static_assert(sizeof(adc2_channels) / sizeof(adc2_channels[0]) == timing::adc2_channels, "ADC2 scan length mismatch");
+                static_assert(adc2_channels[timing::capacitor_current_index] == ADC_CHANNEL_3, "Capacitor current must use PA6");
+                if (!configureAdc(_adc1, _dma1, ADC1, DMA1_Channel3, DMA_REQUEST_ADC1, adc1_channels, timing::adc1_channels) ||
+                        !configureAdc(_adc2, _dma2, ADC2, DMA1_Channel4, DMA_REQUEST_ADC2, adc2_channels, timing::adc2_channels) ||
+                        HAL_ADC_Start_DMA(&_adc1, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(&_raw1[0][0][0])), sizeof(_raw1) / sizeof(uint16_t)) != HAL_OK ||
+                        HAL_ADC_Start_DMA(&_adc2, reinterpret_cast<uint32_t*>(const_cast<uint16_t*>(&_raw2[0][0][0])), sizeof(_raw2) / sizeof(uint16_t)) != HAL_OK) {
                         fail();
                         return false;
                 }
@@ -104,7 +106,7 @@ namespace drivers
         }
 
         /**
-         * @brief Reject DMA flag backlog before dispatching the HAL DMA callback.
+         * @brief 调用 HAL 回调前检查 DMA 错误或积压的完成标志。
          *
          */
         void adc::handleDmaIrq(bool second)
@@ -122,7 +124,7 @@ namespace drivers
         }
 
         /**
-         * @brief Latch an ADC overrun before any affected DMA block can be published.
+         * @brief 检测并锁存 ADC 溢出，阻止使用受影响的采样窗口。
          *
          */
         void adc::handleAdcIrq()
@@ -135,7 +137,7 @@ namespace drivers
         }
 
         /**
-         * @brief Consume the completed DMA halves at the hardware deadline. Sequence starts at one.
+         * @brief 在控制节拍读取已完成的两个 DMA 半区，窗口序号从 1 开始。
          *
          */
         bool adc::readWindow(uint32_t sequence, control_sample& result)
@@ -153,22 +155,30 @@ namespace drivers
                 }
                 DMA1->IFCR = expected;
                 __DMB();
-                const volatile uint16_t* first  = &_raw1[8 * half];
-                const volatile uint16_t* second = &_raw2[16 * half + 12];
+                using timing = board::adc_timing;
+                const auto& adc1_scans = _raw1[half];
+                const auto& last_adc1  = adc1_scans[timing::scans_per_window - 1U];
+                const auto& last_adc2  = _raw2[half][timing::scans_per_window - 1U];
                 uint32_t current = 0;
                 uint32_t voltage = 0;
-                for (unsigned i = 0; i < 4; ++i) {
-                        current += first[2 * i];
-                        voltage += first[2 * i + 1];
+                for (const auto& scan : adc1_scans) {
+                        current += scan[0];
+                        voltage += scan[1];
                 }
-                result.last                 = {second[1], second[0], second[2], first[6], first[7], second[3], sequence};
-                result.mean_chassis_current = static_cast<uint16_t>((current + 2) / 4);
-                result.mean_output_voltage  = static_cast<uint16_t>((voltage + 2) / 4);
+                result.last.capacitor_voltage = last_adc2[1];
+                result.last.capacitor_current = last_adc2[timing::capacitor_current_index];
+                result.last.chassis_voltage   = last_adc2[0];
+                result.last.chassis_current   = last_adc1[0];
+                result.last.output_voltage    = last_adc1[1];
+                result.last.output_current    = last_adc2[3];
+                result.last.sequence          = sequence;
+                result.mean_chassis_current = static_cast<uint16_t>((current + timing::scans_per_window / 2U) / timing::scans_per_window);
+                result.mean_output_voltage  = static_cast<uint16_t>((voltage + timing::scans_per_window / 2U) / timing::scans_per_window);
                 return _running;
         }
 
         /**
-         * @brief Stop triggering and DMA, invalidate the mailbox, and latch PWM off.
+         * @brief 停用两路采样 DMA，标记窗口无效并请求锁存关断。
          *
          */
         void adc::fail()
@@ -189,7 +199,7 @@ namespace drivers
         }
 
         /**
-         * @brief Return zero while healthy and one after the acquisition fault has latched.
+         * @brief 采样正常时返回 0，故障锁存后返回 1。
          *
          */
         uint32_t adc::errors() const
@@ -199,7 +209,7 @@ namespace drivers
 }
 
 /**
- * @brief Dispatch the ADC1 DMA channel.
+ * @brief 分发 ADC1 的 DMA 中断。
  *
  */
 extern "C" void DMA1_Channel3_IRQHandler()
@@ -208,7 +218,7 @@ extern "C" void DMA1_Channel3_IRQHandler()
 }
 
 /**
- * @brief Dispatch the ADC2 DMA channel.
+ * @brief 分发 ADC2 的 DMA 中断。
  *
  */
 extern "C" void DMA1_Channel4_IRQHandler()
@@ -217,7 +227,7 @@ extern "C" void DMA1_Channel4_IRQHandler()
 }
 
 /**
- * @brief Dispatch hardware overrun for either ADC.
+ * @brief 处理 ADC1 或 ADC2 的硬件溢出中断。
  *
  */
 extern "C" void ADC1_2_IRQHandler()
@@ -226,7 +236,7 @@ extern "C" void ADC1_2_IRQHandler()
 }
 
 /**
- * @brief Report an ADC or DMA error to the acquisition driver.
+ * @brief 将 ADC 或 DMA 错误报告给采样驱动。
  *
  */
 extern "C" void HAL_ADC_ErrorCallback(ADC_HandleTypeDef*)

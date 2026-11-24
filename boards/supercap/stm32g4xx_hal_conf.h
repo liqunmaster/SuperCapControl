@@ -1,5 +1,6 @@
-/** @file stm32g4xx_hal_conf.h
- *  @brief HAL modules and timebase parameters used by the SuperCap board.
+/**
+ * @file stm32g4xx_hal_conf.h
+ * @brief 超级电容控制板使用的 HAL 模块和时基参数。
  */
 #pragma once
 

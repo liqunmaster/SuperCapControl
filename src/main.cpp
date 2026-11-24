@@ -1,11 +1,11 @@
 /**
  * @file main.cpp
- * @brief Firmware entry point.
+ * @brief 固件入口。
  */
 #include "control.hpp"
 
 /**
- * @brief Enter the board application.
+ * @brief 进入板级控制应用。
  *
  */
 int main()

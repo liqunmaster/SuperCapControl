@@ -1,11 +1,11 @@
 /**
  * @file timebase.cpp
- * @brief TIM2 HAL milliseconds.
+ * @brief 由 TIM2 提供 HAL 毫秒时基。
  */
 #include "board.hpp"
 
 /**
- * @brief Configure HAL timeouts from TIM2 at boot and after clock changes.
+ * @brief 在启动和时钟切换后配置 TIM2，使 HAL 超时计数保持毫秒分辨率。
  *
  */
 extern "C" HAL_StatusTypeDef HAL_InitTick(uint32_t priority)
@@ -29,7 +29,7 @@ extern "C" HAL_StatusTypeDef HAL_InitTick(uint32_t priority)
 }
 
 /**
- * @brief Pause the HAL timebase interrupt.
+ * @brief 暂停 HAL 时基中断。
  *
  */
 extern "C" void HAL_SuspendTick()
@@ -38,7 +38,7 @@ extern "C" void HAL_SuspendTick()
 }
 
 /**
- * @brief Resume the HAL timebase interrupt.
+ * @brief 恢复 HAL 时基中断。
  *
  */
 extern "C" void HAL_ResumeTick()
@@ -47,7 +47,7 @@ extern "C" void HAL_ResumeTick()
 }
 
 /**
- * @brief Advance the HAL timebase once per TIM2 update.
+ * @brief 每次 TIM2 更新时递增 HAL 毫秒计数。
  *
  */
 extern "C" void TIM2_IRQHandler()

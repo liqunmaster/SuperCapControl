@@ -1,6 +1,6 @@
 /**
  * @file can.hpp
- * @brief Interrupt-driven classic CAN using the STM32 FDCAN HAL.
+ * @brief 基于 STM32 FDCAN HAL 的经典 CAN 中断收发接口。
  */
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace drivers
 {
         /**
-         * @brief Classic CAN data frame and local receive timestamp.
+         * @brief 经典 CAN 数据帧及本地接收时间戳。
          *
          */
         struct can_frame
@@ -23,7 +23,7 @@ namespace drivers
         };
 
         /**
-         * @brief FDCAN3 transmit FIFO and bounded software receive queue.
+         * @brief 管理 FDCAN3 发送 FIFO 和定长软件接收队列。
          *
          */
         class can

@@ -1,12 +1,12 @@
 /**
  * @file board.cpp
- * @brief Board clock, safe pin states and fatal fault handlers.
+ * @brief 板级时钟、引脚初始电平与致命故障处理。
  */
 #include "board.hpp"
 
 /**
- * @brief Drive both gate drivers' inputs low before clock and runtime initialization.
- * @pre The reset handler has initialized the stack pointer.
+ * @brief 在初始化时钟和运行环境前拉低两侧栅极驱动器的输入。
+ * @pre 复位处理程序已设置栈指针。
  *
  */
 extern "C" void board_early_gate_inputs_low()
@@ -28,7 +28,7 @@ extern "C" void board_early_gate_inputs_low()
 namespace
 {
         /**
-         * @brief Set the output latch before switching the pins to output mode.
+         * @brief 先设置输出锁存电平，再将引脚切换为输出模式。
          *
          */
         void safeOutput(GPIO_TypeDef* port, uint32_t pins, GPIO_PinState level)
@@ -45,7 +45,7 @@ namespace
 namespace board
 {
         /**
-         * @brief Initialize safe pins and switch from HSI to the 170 MHz HSE PLL.
+         * @brief 设置引脚初始状态，并从 HSI 切换到由 HSE 经 PLL 产生的 170 MHz 系统时钟。
          *
          */
         bool init()
@@ -99,7 +99,7 @@ namespace board
         }
 
         /**
-         * @brief Return the current APB1 timer input clock in Hz.
+         * @brief 返回 APB1 定时器的当前输入时钟频率，单位为 Hz。
          *
          */
         uint32_t apb1TimerHz()
@@ -109,7 +109,7 @@ namespace board
         }
 
         /**
-         * @brief Force the PWM outputs low and halt after a fatal fault.
+         * @brief 发生致命故障后拉低 PWM 输出并停机。
          *
          */
         [[noreturn]] void panic()
@@ -129,7 +129,7 @@ namespace board
 }
 
 /**
- * @brief Route a processor fault through the common shutdown.
+ * @brief 处理处理器硬故障并关断输出。
  *
  */
 extern "C" void HardFault_Handler()
@@ -138,7 +138,7 @@ extern "C" void HardFault_Handler()
 }
 
 /**
- * @brief Route a memory protection fault through the common shutdown.
+ * @brief 处理存储保护故障并关断输出。
  *
  */
 extern "C" void MemManage_Handler()
@@ -147,7 +147,7 @@ extern "C" void MemManage_Handler()
 }
 
 /**
- * @brief Route a bus fault through the common shutdown.
+ * @brief 处理总线故障并关断输出。
  *
  */
 extern "C" void BusFault_Handler()
@@ -156,7 +156,7 @@ extern "C" void BusFault_Handler()
 }
 
 /**
- * @brief Route an instruction or processor state fault through the common shutdown.
+ * @brief 处理指令或处理器状态故障并关断输出。
  *
  */
 extern "C" void UsageFault_Handler()

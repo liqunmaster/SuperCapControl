@@ -14,6 +14,7 @@ add_executable(supercap
     "${board_root}/startup_stm32g474cbtx.s"
     boards/supercap/board.cpp
     boards/supercap/timebase.cpp
+    application/voltage.cpp
     application/control.cpp
     math/incremental_pid.cpp
     drivers/gpio.cpp

@@ -2,16 +2,9 @@
   ******************************************************************************
   * @file      startup_stm32g474xx.s
   * @author    MCD Application Team
-  * @brief     STM32G474xx devices vector table GCC toolchain.
-  *            This module performs:
-  *                - Set the initial SP
-  *                - Set the initial PC == Reset_Handler,
-  *                - Set the vector table entries with the exceptions ISR address,
-  *                - Configure the clock system
-  *                - Branches to main in the C library (which eventually
-  *                  calls main()).
-  *            After Reset the Cortex-M4 processor is in Thread mode,
-  *            priority is Privileged, and the Stack is set to Main.
+  * @brief     STM32G474xx 的 GCC 启动代码与中断向量表。
+  *            复位后，Cortex-M4 使用主栈，以特权线程模式运行。
+  *            复位入口设置栈指针，初始化时钟和 C 运行环境，随后调用 main。
   ******************************************************************************
   * @attention
   *
@@ -33,42 +26,37 @@
 .global	g_pfnVectors
 .global	Default_Handler
 
-/* start address for the initialization values of the .data section.
-defined in linker script */
+/* 链接脚本定义的 .data 段初值在闪存中的起始地址。 */
 .word	_sidata
-/* start address for the .data section. defined in linker script */
+/* 链接脚本定义的 .data 段起始地址。 */
 .word	_sdata
-/* end address for the .data section. defined in linker script */
+/* 链接脚本定义的 .data 段结束地址。 */
 .word	_edata
-/* start address for the .bss section. defined in linker script */
+/* 链接脚本定义的 .bss 段起始地址。 */
 .word	_sbss
-/* end address for the .bss section. defined in linker script */
+/* 链接脚本定义的 .bss 段结束地址。 */
 .word	_ebss
 
 .equ  BootRAM,        0xF1E0F85F
 /**
- * @brief  This is the code that gets called when the processor first
- *          starts execution following a reset event. Only the absolutely
- *          necessary set is performed, after which the application
- *          supplied main() routine is called.
- * @param  None
- * @retval : None
-*/
+ * @brief 复位时初始化必要的硬件和运行环境，然后调用 main。
+ *
+ */
 
     .section	.text.Reset_Handler
 	.weak	Reset_Handler
 	.type	Reset_Handler, %function
 Reset_Handler:
   ldr   r0, =_estack
-  mov   sp, r0          /* set stack pointer */
+  mov   sp, r0          /* 设置栈指针。 */
 
-/* Drive the gate inputs low before initializing the C runtime. */
+/* 初始化 C 运行环境前拉低门极驱动输入。 */
     bl  board_early_gate_inputs_low
 
-/* Call the clock system initialization function.*/
+/* 初始化系统时钟。*/
     bl  SystemInit
 
-/* Copy the data segment initializers from flash to SRAM */
+/* 将 .data 段初值从闪存复制到 SRAM。 */
   ldr r0, =_sdata
   ldr r1, =_edata
   ldr r2, =_sidata
@@ -85,7 +73,7 @@ LoopCopyDataInit:
   cmp r4, r1
   bcc CopyDataInit
   
-/* Zero fill the bss segment. */
+/* 将 .bss 段清零。 */
   ldr r2, =_sbss
   ldr r4, =_ebss
   movs r3, #0
@@ -99,9 +87,9 @@ LoopFillZerobss:
   cmp r2, r4
   bcc FillZerobss
 
-/* Call static constructors */
+/* 调用静态对象的构造函数。 */
     bl __libc_init_array
-/* Call the application's entry point.*/
+/* 调用应用程序入口。*/
 	bl	main
 
 LoopForever:
@@ -110,13 +98,9 @@ LoopForever:
 .size	Reset_Handler, .-Reset_Handler
 
 /**
- * @brief  This is the code that gets called when the processor receives an
- *         unexpected interrupt.  This simply enters an infinite loop, preserving
- *         the system state for examination by a debugger.
+ * @brief 未处理的异常在此循环停机，保留现场供调试器检查。
  *
- * @param  None
- * @retval : None
-*/
+ */
     .section	.text.Default_Handler,"ax",%progbits
 Default_Handler:
 Infinite_Loop:
@@ -124,9 +108,7 @@ Infinite_Loop:
 	.size	Default_Handler, .-Default_Handler
 /******************************************************************************
 *
-* The minimal vector table for a Cortex-M4.  Note that the proper constructs
-* must be placed on this to ensure that it ends up at physical address
-* 0x0000.0000.
+* Cortex-M4 中断向量表，由链接脚本放置在启动向量位置。
 *
 ******************************************************************************/
  	.section	.isr_vector,"a",%progbits
@@ -257,9 +239,7 @@ g_pfnVectors:
 
 /*******************************************************************************
 *
-* Provide weak aliases for each Exception handler to the Default_Handler.
-* As they are weak aliases, any function with the same name will override
-* this definition.
+* 各异常处理函数默认使用 Default_Handler 的弱别名，同名强定义可覆盖它。
 *
 *******************************************************************************/
 

@@ -117,9 +117,8 @@ extern "C"
                 errno = ESPIPE;
                 return -1;
         }
-        /// No heap allocation in drivers. Provide a bounded heap for newlib's stdio.
         /**
-         * @brief 在链接脚本预留的 2 KiB 堆范围内分配 newlib 内存。
+         * @brief 使用链接脚本预留的 2 KiB 堆为 newlib 提供内存。驱动使用静态缓冲区。
          * @param increment 非负的申请字节数，不支持缩减堆。
          * @return 原堆顶地址；超出范围时返回 (void*)-1 并设置 ENOMEM。
          *

@@ -1,6 +1,6 @@
 /**
  * @file gpio.hpp
- * @brief HAL GPIO pin configuration and access.
+ * @brief GPIO 引脚配置与读写接口。
  */
 #pragma once
 
@@ -9,7 +9,7 @@
 namespace drivers
 {
         /**
-         * @brief Stateless GPIO access for an already clocked port.
+         * @brief 提供已开启时钟的 GPIO 端口访问函数。
          *
          */
         class gpio

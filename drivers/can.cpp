@@ -1,6 +1,6 @@
 /**
  * @file can.cpp
- * @brief HAL FDCAN3 classic CAN with interrupt reception.
+ * @brief 通过 HAL 配置 FDCAN3，以中断接收经典 CAN 帧。
  */
 #include "can.hpp"
 
@@ -17,7 +17,7 @@ namespace
 namespace drivers
 {
         /**
-         * @brief Return the sole owner of FDCAN3.
+         * @brief 获取管理 FDCAN3 的驱动实例。
          *
          */
         can& can::instance()
@@ -27,8 +27,8 @@ namespace drivers
         }
 
         /**
-         * @brief Start classic CAN at 1 Mbps after confirming the transceiver pinout.
-         * @param notify Optional nonblocking ISR callback for a received frame or status change.
+         * @brief 确认收发器接线后，以 1 Mbps 启动经典 CAN。
+         * @param notify 可选的非阻塞中断回调，收到帧或状态变化时调用。
          *
          */
         bool can::init(void (*notify)())
@@ -73,7 +73,7 @@ namespace drivers
         }
 
         /**
-         * @brief Queue a valid classic data frame without blocking in the caller task.
+         * @brief 以非阻塞方式将有效的经典 CAN 数据帧加入发送队列。
          *
          */
         bool can::send(const can_frame& frame)
@@ -96,7 +96,7 @@ namespace drivers
         }
 
         /**
-         * @brief Copy and remove the oldest queued frame.
+         * @brief 复制并移除队首接收帧。
          *
          */
         bool can::receive(can_frame& frame)
@@ -111,7 +111,7 @@ namespace drivers
         }
 
         /**
-         * @brief Count hardware loss, software overflow, invalid frames and bus-off.
+         * @brief 返回硬件丢帧、软件溢出、无效帧和总线关闭的累计计数。
          *
          */
         uint32_t can::errors() const
@@ -120,7 +120,7 @@ namespace drivers
         }
 
         /**
-         * @brief Return the latched bus-off state.
+         * @brief 返回锁存的总线关闭状态。
          *
          */
         bool can::busOff() const
@@ -129,7 +129,7 @@ namespace drivers
         }
 
         /**
-         * @brief Acknowledge HAL events and drain at most the hardware FIFO depth.
+         * @brief 处理 HAL 事件，单次读取的帧数以硬件 FIFO 深度为限。
          *
          */
         void can::handleIrq()
@@ -147,7 +147,8 @@ namespace drivers
 
                 for (unsigned index = 0; index < 3 && HAL_FDCAN_GetRxFifoFillLevel(&_can, FDCAN_RX_FIFO0) != 0; ++index) {
                         FDCAN_RxHeaderTypeDef header{};
-                        uint8_t payload[64];  ///< HAL can copy an FD-sized DLC before the driver validates it.
+                        // HAL 在驱动检查帧长度前就可能复制最多 64 字节。
+                        uint8_t payload[64];
                         if (HAL_FDCAN_GetRxMessage(&_can, FDCAN_RX_FIFO0, &header, payload) != HAL_OK) {
                                 ++_errors;
                                 break;
@@ -176,7 +177,7 @@ namespace drivers
 }
 
 /**
- * @brief Route FDCAN3 interrupt line zero to its owner.
+ * @brief 将 FDCAN3 的中断线 0 分发给驱动。
  *
  */
 extern "C" void FDCAN3_IT0_IRQHandler()

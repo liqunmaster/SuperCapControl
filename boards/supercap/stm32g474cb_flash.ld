@@ -1,5 +1,5 @@
 ENTRY(Reset_Handler)
-/* xB: 128 KiB flash; SRAM1+SRAM2: 96 KiB. CCM is separate, not DMA storage. */
+/* xB 器件含 128 KiB 闪存，SRAM1 与 SRAM2 合计 96 KiB。CCM 为独立存储区，DMA 缓冲区应放在 SRAM。 */
 MEMORY
 {
     FLASH (rx) : ORIGIN = 0x08000000, LENGTH = 128K

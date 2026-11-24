@@ -1,5 +1,6 @@
 # SuperCapControl
 
+![image-principle-1](项目内容.png)
 STM32G474CBT6 超级电容固件。使用 C++14、STM32G4 HAL、ARM GCC、CMake、Ninja 和 clangd。本阶段提供 ADC、PWM、GPIO、CAN 和 UART 驱动，应用入口用于验证驱动和调度。
 
 ## 构建与调试
